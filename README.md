@@ -6,10 +6,19 @@ At the time of viewing, there may not be any code published yet. I commonly keep
 
 ## Palantir's Expected Design
 
-Peer to Peer networking is complicated. Palantir will start out very simple: a hosting server that relays messages between clients and itself. While this is a very simple design that is not-quite-peer-to-peer, this will help to lay most of the framework for Palantir's API, as the actual method used for sending messages will be abstracted over with traits. Palantir will try to remain as future proof as possible. As such, the primary protocol used for the initial server implementation will be WebTransport. WASM support is expected in the future, however it may take some time. No-Std support is not a primary goal, due to the nature of cryptography and IO implementations.
+Peer to Peer networking is complicated, but Peer to Peer libraries don't have to be. While existing libraries are very robust and extremely extensible, they tend to have rather complicated interfaces and sometimes feel more like frameworks than libraries. Palantir will be designed to be very simple, and will not make any decisions for you on your application's design, excepting a few dependencies. Initializing a Palantir instance will look as follows:
+1. Define your Transports
+2. Describe your Network
+3. Create/Retrieve an Identity
+4. Connect to the Network using a Palantir instance
+5. Get notified of new peers and
+6. Send raw data to peers, and receive responses back.
+
+Palantir will be starting with a very simple network implementation using a relay server. While a simple design like a relay server is not quite peer-to-peer, it will help lay the framework for Palantir's API. WASM support is expected in the future, however it may take some time. No-Std support is not a primary goal, however if any good solutions for executor and platform agnostic IO come up, then it is a possiblity.
 
 ## Why Is This Being Made?
 
-I am making Palantir primarily for use with Fluxion. Fluxion enables messages to be sent between different actor systems. Palantir will enable sending messages to different computers on different networks without (much) backend infrastructure. Combining the two will yield decentralized, distributed, and scalable applications. This combination will be used in future projects with much more in store.
+I am making Palantir primarily for use with Fluxion. Fluxion enables messages to be sent between different actor systems. Palantir will enable sending messages to different computers on different networks without (much) backend infrastructure. I hope that this will pair well with Fluxion for building peer-to-peer applications.
+
 
 It should be noted that there is no exact timeframe for this project to reach a usable state, however planning and work is beginning imminently.
