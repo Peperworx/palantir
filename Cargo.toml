@@ -11,3 +11,6 @@ readme = "README.md"
 
 [dependencies]
 async-trait = "0.1.74"
+kanal = "0.1.0-pre8"
+serde = "1.0.193"
+thiserror = "1.0.50"
