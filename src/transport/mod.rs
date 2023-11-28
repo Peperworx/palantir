@@ -55,16 +55,18 @@ pub trait Transport<M: Message> {
     /// Waits for a new connection, returning the ConnectionId
     async fn wait_for_new_connection(&self) -> Vec<PeerId>;
 
-    /// Given a Peer ID, get a [`PeerHandle`], which enables sending and receiving messages
-    /// from a peer.
-    async fn get_peer_handle(&self, peer: PeerId) -> Arc<PeerHandle<M>>;
+    /// Given a Connection ID, returns a [`ConnectionHandle`], which enables sending and receiving messages
+    /// from a peer over a specific connection.
+    async fn get_connection_handle(&self, connection: ConnectionId) -> Arc<ConnectionHandle<M>>;
 }
 
 
-/// # [`PeerHandle`]
+/// # [`ConnectionHandle`]
 /// Wraps send and recieve channels of which the other ends are held by a 
-/// [`Transport`], and allows communication with a peer.
-pub struct PeerHandle<M: Message> {
+/// [`Transport`], and allows communication with a connection.
+/// It should be noted that multiple connection handlers are *not* guarenteed to receive every message,
+/// and that at most one connection handler should be used 
+pub struct ConnectionHandle<M: Message> {
     /// Outbound message channel (messages being sent TO the peer)
     outbound: kanal::AsyncSender<(M, kanal::OneshotAsyncSender<M::Response>)>,
     /// Inbound message channel (messages being received FROM the peer)
@@ -72,7 +74,7 @@ pub struct PeerHandle<M: Message> {
 }
 
 
-impl<M: Message> PeerHandle<M> {
+impl<M: Message> ConnectionHandle<M> {
 
     /// Send a message to the peer and wait for a response
     pub async fn send(&self, message: M) -> Result<M::Response, TransportError> {
