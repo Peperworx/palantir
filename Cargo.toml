@@ -1,7 +1,11 @@
 [package]
 name = "palantir"
-version = "0.1.0"
+license = "MIT OR Apache-2.0"
+description = "Work in progress P2P networking library designed for use with Fluxion."
+repository = "https://github.com/peperworx/palantir"
+version = "0.0.0"
 edition = "2021"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
