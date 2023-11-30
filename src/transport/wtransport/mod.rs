@@ -7,6 +7,8 @@
 //! 
 //! A [`DirectPeer`] is identified and authenticated using ECDSA P-384.
 
+
+
 mod session;
 mod context;
 
@@ -53,7 +55,9 @@ impl DirectPeer {
 
     /// Creates a new [`DirectPeer`], configuring it to listen on the given address
     /// using the given ECDSA keypair
-    pub fn new(address: SocketAddr, keypair: (ecdsa::SigningKey<p384::NistP384>, ecdsa::VerifyingKey<p384::NistP384>)) -> Result<Self, TransportError> {
+    pub fn new(
+            address: SocketAddr, 
+            keypair: (ecdsa::SigningKey<p384::NistP384>, ecdsa::VerifyingKey<p384::NistP384>)) -> Result<Self, TransportError> {
         // Convert our keypair to a rcgen::KeyPair
         
         // First create a PCKS8 document
@@ -100,6 +104,7 @@ impl DirectPeer {
         // Create the tls config
         let tls_config = rustls::ServerConfig::builder()
             .with_safe_defaults()
+            
             .with_no_client_auth()
             .with_single_cert(vec![cert.clone()], rustls::PrivateKey(key_der.to_vec()))
             .unwrap();

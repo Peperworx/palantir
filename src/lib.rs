@@ -5,6 +5,8 @@ use sha2::Digest;
 
 pub mod transport;
 
+pub mod crypto;
+
 /// # [`PeerId`]
 /// Stores a peer's ID as a 512 bit little-endian encoded number.
 /// Generally, the returned peer id's should be generated from a cryptographically-secure hashing algorithm,
