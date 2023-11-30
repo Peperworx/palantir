@@ -27,6 +27,12 @@ pub enum TransportError {
     /// Received an invalid ecdsa key
     #[error("invalid key")]
     InvalidKey,
+    /// There was an error with the connection
+    #[error("connection error")]
+    ConnectionError,
+    /// The client failed to authenticate itself
+    #[error("authentication failed")]
+    AuthenticationFailed,
 }
 
 
