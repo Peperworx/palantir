@@ -12,6 +12,7 @@ readme = "README.md"
 [dependencies]
 async-trait = "0.1.74"
 ecdsa = "0.16.9"
+elliptic-curve = "0.13.8"
 futures = "0.3.29"
 kanal = "0.1.0-pre8"
 p384 = "0.13.0"
