@@ -24,6 +24,9 @@ pub enum TransportError {
     /// Failed to send a response to a peer
     #[error("response failed")]
     ResponseSendFailed,
+    /// Received an invalid ecdsa key
+    #[error("invalid key")]
+    InvalidKey,
 }
 
 
@@ -53,14 +56,14 @@ pub trait Transport<M: Message> {
     async fn wait_for_new_peer(&self) -> Vec<PeerId>;
 
     /// Lists every connection for a given peer
-    fn get_connections_by_peer(&self, peer: PeerId) -> Vec<ConnectionId>;
+    //fn get_connections_by_peer(&self, peer: PeerId) -> Vec<ConnectionId>;
 
     /// Waits for a new connection, returning the ConnectionId
-    async fn wait_for_new_connection(&self) -> Vec<PeerId>;
+    //async fn wait_for_new_connection(&self) -> Vec<PeerId>;
 
-    /// Given a Connection ID, returns a [`ConnectionHandle`], which enables sending and receiving messages
+    /// Given a Peer ID, returns a [`ConnectionHandle`], which enables sending and receiving messages
     /// from a peer over a specific connection.
-    async fn get_connection_handle(&self, connection: ConnectionId) -> Arc<ConnectionHandle<M>>;
+    async fn get_connection_handle(&self, peer: PeerId) -> Arc<ConnectionHandle<M>>;
 }
 
 /// # [`TransportControlMessage`]
