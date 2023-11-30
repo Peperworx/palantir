@@ -54,12 +54,12 @@ pub struct DirectPeer {
 impl DirectPeer {
 
     /// Creates a new [`DirectPeer`], configuring it to listen on the given address
-    /// using the given ECDSA keypair
+    /// using the given certificate
     pub fn new(
             address: SocketAddr, 
-            keypair: (ecdsa::SigningKey<p384::NistP384>, ecdsa::VerifyingKey<p384::NistP384>)) -> Result<Self, TransportError> {
-        // Convert our keypair to a rcgen::KeyPair
+            cert: Vec<u8>) -> Result<Self, TransportError> {
         
+
         // First create a PCKS8 document
         let key_doc = keypair.0.to_pkcs8_der().or(Err(TransportError::InvalidKey))?;
         
