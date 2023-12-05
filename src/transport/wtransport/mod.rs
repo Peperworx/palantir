@@ -17,7 +17,7 @@ use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 use futures::FutureExt;
 use p384::pkcs8::EncodePrivateKey;
 use rcgen::DistinguishedName;
-use rustls::Certificate;
+
 use serde::de;
 use wtransport::{ServerConfig, endpoint::IncomingSession};
 
@@ -54,14 +54,15 @@ pub struct DirectPeer {
 impl DirectPeer {
 
     /// Creates a new [`DirectPeer`], configuring it to listen on the given address
-    /// using the given certificate
+    /// using the given x509 certificate
     pub fn new(
             address: SocketAddr, 
-            cert: Vec<u8>) -> Result<Self, TransportError> {
+            cert: CertificateDer) -> Result<Self, TransportError> {
         
+        let keypair = crate::crypto::KeyPair::from_x509(cert);
 
         // First create a PCKS8 document
-        let key_doc = keypair.0.to_pkcs8_der().or(Err(TransportError::InvalidKey))?;
+        let key_doc = keypair.signing_key().to_pkcs8_der().or(Err(TransportError::InvalidKey))?;
         
         // serialize it to ANS.1 DER
         let key_der = key_doc.to_bytes();
@@ -70,7 +71,7 @@ impl DirectPeer {
         let rcgen_key = rcgen::KeyPair::from_der(&key_der).or(Err(TransportError::InvalidKey))?;
 
         // Create an ID for this peer from the Verifying Key
-        let id = PeerId::from(keypair.1);
+        let id = PeerId::from(keypair.verifying_key());
         
         // Build a x509 certificate
 
