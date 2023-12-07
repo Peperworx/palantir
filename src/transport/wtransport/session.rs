@@ -23,8 +23,10 @@ impl SessionHandler {
         println!("in runner");
         // Get the session request
         let session = self.session.await.unwrap();
+
         println!("request accepted, getting headers");
         println!("{:?}", session.headers());
+        
         let session = session.accept().await.unwrap();
         let mut conn = session.accept_bi().await.unwrap();
         conn.0.write(b"hello, world").await.unwrap();
