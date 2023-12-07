@@ -12,14 +12,14 @@
 mod session;
 mod context;
 
-use std::{net::{IpAddr, SocketAddr}, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
+use elliptic_curve::{SecretKey, PublicKey};
 use futures::FutureExt;
-use p384::pkcs8::EncodePrivateKey;
-use crate::crypto::Certificate;
+use p384::{pkcs8::EncodePrivateKey, NistP384};
 
-use serde::de;
-use wtransport::{ServerConfig, endpoint::IncomingSession};
+
+use wtransport::endpoint::IncomingSession;
 
 use crate::PeerId;
 
@@ -34,11 +34,10 @@ use super::TransportError;
 pub struct DirectPeer {
     /// The address and port to listen on
     addr: SocketAddr,
-    
-    /// This peer's ID, as calculated from its VerifyingKey
+    /// The peer's keypair
+    keypair: (SecretKey<NistP384>, PublicKey<NistP384>),
+    /// This peer's ID, as calculated from its PublicKey
     id: PeerId,
-    /// This peer's x509 certificate
-    cert: Certificate,
     /// The TLS configuration
     tls_config: rustls::ServerConfig,
     /// The sender for the communication channel
@@ -53,15 +52,29 @@ pub struct DirectPeer {
 impl DirectPeer {
 
     /// Creates a new [`DirectPeer`], configuring it to listen on the given address
-    /// using the given x509 certificate
+    /// using the given NistP384 secret key
     pub fn new(
             address: SocketAddr, 
-            cert: Certificate) -> Result<Self, TransportError> {
+            sk: SecretKey<NistP384>) -> Result<Self, TransportError> {
         
-        
+        // Get the public key
+        let pk = sk.public_key();
 
         // Create an ID for this peer from the Verifying Key
-        let id = PeerId::from(cert.verifying_key());
+        let id = PeerId::from(&pk);
+
+        // Generate a certificate
+        let cert = rcgen::Certificate::from_params({
+            let mut params = rcgen::CertificateParams::new(vec![id.to_string()]);
+
+            params.alg = &rcgen::PKCS_ECDSA_P384_SHA384;
+            params.key_pair = Some(rcgen::KeyPair::from_der(sk.to_pkcs8_der().unwrap().as_bytes()).unwrap());
+
+            params
+        }).unwrap();
+
+        // Convert to rustls certificate
+        let cert = rustls::Certificate(cert.serialize_der().unwrap());
         
         // Create a channel for the transport to communicate with the running task
         let (sender, receiver) = kanal::unbounded_async();
@@ -69,21 +82,19 @@ impl DirectPeer {
 
         // Create the tls config
         let tls_config = rustls::ServerConfig::builder()
+            .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(
-                vec![cert.certificate()],
-                rustls_pki_types::PrivateKeyDer::Pkcs8(
-                    rustls_pki_types::PrivatePkcs8KeyDer::from(
-                        cert.signing_key().to_pkcs8_der().unwrap().as_bytes()
-                    )
-                )
+                vec![cert],
+                rustls::PrivateKey(sk.to_pkcs8_der().unwrap().as_bytes().to_vec())
             ).unwrap();
 
         Ok(Self {
             addr: address,
             id,
-            cert, sender, receiver,
+            sender, receiver,
             tls_config,
+            keypair: (sk, pk)
         })
     }
 

@@ -5,7 +5,6 @@ use sha2::Digest;
 
 pub mod transport;
 
-pub mod crypto;
 
 /// # [`PeerId`]
 /// Stores a peer's ID as a 512 bit little-endian encoded number.
@@ -15,18 +14,10 @@ pub mod crypto;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PeerId(pub [u8; 64]);
 
-impl From<ecdsa::VerifyingKey<p384::NistP384>> for PeerId {
-    fn from(value: ecdsa::VerifyingKey<p384::NistP384>) -> Self {
-        // Get the SHA2-512 hash of the key represented in SEC1 format
-        let mut hasher = sha2::Sha512::new();
-        hasher.update(value.to_sec1_bytes());
-
-        // Finalize into a known-sized slice
-        let mut hashed = [0u8; 64];
-        hasher.finalize_into((&mut hashed).into());
-
-        // Wrap in peer id
-        PeerId(hashed)
+impl From<&elliptic_curve::PublicKey<p384::NistP384>> for PeerId {
+    fn from(value: &elliptic_curve::PublicKey<p384::NistP384>) -> Self {
+        let vk: ecdsa::VerifyingKey::<p384::NistP384> = (*value).into();
+        PeerId::from(&vk)
     }
 }
 
