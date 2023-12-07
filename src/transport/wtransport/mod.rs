@@ -16,7 +16,7 @@ use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 
 use futures::FutureExt;
 use p384::pkcs8::EncodePrivateKey;
-use rcgen::DistinguishedName;
+use crate::crypto::Certificate;
 
 use serde::de;
 use wtransport::{ServerConfig, endpoint::IncomingSession};
@@ -34,8 +34,7 @@ use super::TransportError;
 pub struct DirectPeer {
     /// The address and port to listen on
     addr: SocketAddr,
-    /// The ECDSA Signing and Verification keys used by this peer
-    keypair: (ecdsa::SigningKey<p384::NistP384>, ecdsa::VerifyingKey<p384::NistP384>),
+    
     /// This peer's ID, as calculated from its VerifyingKey
     id: PeerId,
     /// This peer's x509 certificate
@@ -57,62 +56,32 @@ impl DirectPeer {
     /// using the given x509 certificate
     pub fn new(
             address: SocketAddr, 
-            cert: CertificateDer) -> Result<Self, TransportError> {
+            cert: Certificate) -> Result<Self, TransportError> {
         
-        let keypair = crate::crypto::KeyPair::from_x509(cert);
-
-        // First create a PCKS8 document
-        let key_doc = keypair.signing_key().to_pkcs8_der().or(Err(TransportError::InvalidKey))?;
         
-        // serialize it to ANS.1 DER
-        let key_der = key_doc.to_bytes();
-
-        // Create a rcgen::KeyPair
-        let rcgen_key = rcgen::KeyPair::from_der(&key_der).or(Err(TransportError::InvalidKey))?;
 
         // Create an ID for this peer from the Verifying Key
-        let id = PeerId::from(keypair.verifying_key());
+        let id = PeerId::from(cert.verifying_key());
         
-        // Build a x509 certificate
-
-        // Create the distinguished name for this peer.
-        // This will just contain the keypair as hex bytes
-        let mut distname = DistinguishedName::new();
-        distname.push(rcgen::DnType::CommonName, id.to_string());
-
-
-        
-
-        // Certificate params
-        let mut cparams = rcgen::CertificateParams::new(vec![id.to_string()]);
-        
-        // We want to use ECDSA P384
-        cparams.alg = &rcgen::PKCS_ECDSA_P384_SHA384;
-        // And set a distinguished name
-        cparams.distinguished_name = distname;
-        // This certificate can not sign other certificates
-        cparams.is_ca = rcgen::IsCa::NoCa;
-        // Explicitly set its keypair so a new one is not generated.
-        cparams.key_pair = Some(rcgen_key);
-
-        // Create the certificate
-        let cert = rcgen::Certificate::from_params(cparams).or(Err(TransportError::InvalidKey))?;
-        let cert = Certificate(cert.serialize_der().or(Err(TransportError::InvalidKey))?);
-
         // Create a channel for the transport to communicate with the running task
         let (sender, receiver) = kanal::unbounded_async();
         
+
         // Create the tls config
         let tls_config = rustls::ServerConfig::builder()
-            .with_safe_defaults()
-            
             .with_no_client_auth()
-            .with_single_cert(vec![cert.clone()], rustls::PrivateKey(key_der.to_vec()))
-            .unwrap();
+            .with_single_cert(
+                vec![cert.certificate()],
+                rustls_pki_types::PrivateKeyDer::Pkcs8(
+                    rustls_pki_types::PrivatePkcs8KeyDer::from(
+                        cert.signing_key().to_pkcs8_der().unwrap().as_bytes()
+                    )
+                )
+            ).unwrap();
 
         Ok(Self {
             addr: address,
-            keypair, id,
+            id,
             cert, sender, receiver,
             tls_config,
         })
