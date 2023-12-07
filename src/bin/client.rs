@@ -1,7 +1,8 @@
 use std::{sync::Arc, net::SocketAddr};
 
 use ecdsa::{SigningKey, VerifyingKey};
-use p384::pkcs8::EncodePrivateKey;
+use elliptic_curve::SecretKey;
+use p384::{pkcs8::EncodePrivateKey, NistP384};
 use palantir::{transport::wtransport::DirectPeer, PeerId};
 use rand_core::OsRng;
 use rcgen::DistinguishedName;
@@ -27,8 +28,8 @@ impl ServerCertVerifier for NoServerVerification {
 
 #[tokio::main]
 async fn main() {
-    let sk = SigningKey::random(&mut OsRng);
-    let vk = VerifyingKey::from(&sk);
+    let sk = SecretKey::<NistP384>::random(&mut OsRng);
+    let vk = sk.public_key();
 
     let address: SocketAddr = "0.0.0.0:4432".parse().unwrap();
 
@@ -42,7 +43,7 @@ async fn main() {
     let rcgen_key = rcgen::KeyPair::from_der(&key_der).unwrap();
 
     // Create an ID for this peer from the Verifying Key
-    let id = PeerId::from(vk);
+    let id = PeerId::from(&vk);
     
     // Build a x509 certificate
 
