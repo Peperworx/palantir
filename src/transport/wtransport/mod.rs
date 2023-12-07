@@ -149,10 +149,5 @@ impl DirectPeer {
         }
     }
 
-    /// Handles a local session
-    async fn session_handler(&self, sender: kanal::AsyncSender<()>, session: IncomingSession, killed: kanal::OneshotAsyncReceiver<()>) {
-
-
-        
-    }
+    
 }
