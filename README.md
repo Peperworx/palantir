@@ -6,15 +6,11 @@ At the time of viewing, there may not be any code published yet. I commonly keep
 
 ## Palantir's Expected Design
 
-Peer to Peer networking is complicated, but Peer to Peer libraries don't have to be. While existing libraries are very robust and extremely extensible, they tend to have rather complicated interfaces and sometimes feel more like frameworks than libraries. Palantir will be designed to be very simple, and will not make any decisions for you on your application's design, excepting a few dependencies. Initializing a Palantir instance will look as follows:
-1. Define your Transports
-2. Describe your Network
-3. Create/Retrieve an Identity
-4. Connect to the Network using a Palantir instance
-5. Get notified of new peers and
-6. Send raw data to peers, and receive responses back.
+Peer to Peer networking is complicated, but Peer to Peer libraries don't have to be. While existing libraries are very robust and extremely extensible, they tend to have rather complicated interfaces and sometimes feel more like frameworks than libraries. Palantir will be designed to be very simple.
 
-Palantir will be starting with a very simple network implementation using a relay server. While a simple design like a relay server is not quite peer-to-peer, it will help lay the framework for Palantir's API. WASM support is expected in the future, however it may take some time. No-Std support is not a primary goal, however if any good solutions for executor and platform agnostic IO come up, then it is a possiblity.
+Palantir will be based off of "layers". Each layer will provide some functionality, and will wrap additional layer(s). The layer lowest in the tree, that does not wrap any other layers, is known as a "transport".
+
+Each layer allows sending bytes to a peer.
 
 ## Why Is This Being Made?
 
