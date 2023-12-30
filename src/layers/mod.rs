@@ -15,6 +15,9 @@ pub trait Layer<M, R>: Send {
     /// The peer ID type
     type PeerID;
 
-    /// Send a message to the given peer and wait for a response
-    fn request(&self, peer: Self::PeerID, message: M) -> impl Future<Output = Result<R, Self::Error>>;
+    /// The namespace ID type
+    type NamespaceID;
+
+    /// Send a message to the given namespace on a peer, and wait for a response
+    fn request(&self, namespace: Self::NamespaceID, peer: Self::PeerID, message: M) -> impl Future<Output = Result<R, Self::Error>>;
 }
