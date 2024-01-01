@@ -3,10 +3,11 @@
 
 use rand::Rng;
 use sha2::Digest;
+use serde::{Serialize, Deserialize};
 
 /// # [`HostedPeerID`]
 /// This enum is used to identify peers that are connected using layers that are split into host and client parts. (hosted layers)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostedPeerID {
     /// This variant identifies the peer as the host.
     Host,
