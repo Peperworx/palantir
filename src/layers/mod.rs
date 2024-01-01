@@ -7,17 +7,18 @@ use std::error::Error;
 pub mod web_transport;
 
 /// # [`Layer`]
-/// A [`Layer`] allows sending a message `M` to a peer and waits for a response `R`.
-pub trait Layer<M, R>: Send {
-    /// The error returned by the layer
-    type Error: Error;
+/// A [`Layer`] allows retreiving connections to peers.
+pub trait Layer: Send {
+    
+    /// The peer type used by this layer
+    type Peer: Peer;
 
-    /// The peer ID type
-    type PeerID;
+    /// Get a connected peer, returning None if the peer does not exist
+    fn get_peer(&self, id: <Self::Peer as Peer>::ID) -> Option<Self::Peer>;
+}
 
-    /// The namespace ID type
-    type NamespaceID;
+pub trait Peer {
 
-    /// Send a message to the given namespace on a peer, and wait for a response
-    fn request(&self, namespace: Self::NamespaceID, peer: Self::PeerID, message: M) -> impl Future<Output = Result<R, Self::Error>>;
+    /// The type of the peer's identifier
+    type ID;
 }
