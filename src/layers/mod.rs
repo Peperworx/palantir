@@ -21,11 +21,9 @@ pub trait Peer {
     /// The type of the peer's identifier
     type ID;
 
-    /// The type of the peer's namespace identifiers
-    type NSID;
+    /// The namespace type used by the peer
+    type Namespace;
 
-    /// The message type sent by the peer
-    type Message;
-
-    
+    /// Get a namespace from the peer
+    fn get_namespace(&self, id: <Self::Namespace as Namespace>::ID) -> Option<Self::Namespace>;
 }
