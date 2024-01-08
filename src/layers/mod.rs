@@ -1,7 +1,6 @@
 //! # Layers
 
-use core::future::Future;
-use std::error::Error;
+
 
 
 pub mod web_transport;
@@ -21,4 +20,12 @@ pub trait Peer {
 
     /// The type of the peer's identifier
     type ID;
+
+    /// The type of the peer's namespace identifiers
+    type NSID;
+
+    /// The message type sent by the peer
+    type Message;
+
+    
 }
