@@ -7,7 +7,7 @@
 
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
-use wtransport::{error::{ConnectingError, ConnectionError, StreamOpeningError, StreamReadExactError, StreamReadError}, RecvStream, SendStream};
+use wtransport::{error::{ConnectingError, ConnectionError, StreamOpeningError, StreamReadExactError, StreamReadError, StreamWriteError}, RecvStream, SendStream};
 
 use crate::identification::HostedPeerID;
 
@@ -40,16 +40,25 @@ pub enum WebTransportLayerError {
     /// Error reading from the stream
     #[error("stream read error {0}")]
     StreamReadError(#[from] StreamReadError),
+    /// Error writing to stream
+    #[error("stream write error {0}")]
+    StreamWriteError(#[from] StreamWriteError),
     /// An IO Error occured
     #[error("IO Error {0}")]
-    IOError(#[from] std::io::Error)
+    IOError(#[from] std::io::Error),
+    /// An error occured while opening a namespace
+    #[error("Error opening namespace")]
+    NamespaceOpenError,
+    /// An error occured while reading from a namespace. Invalid packet received
+    #[error("Invalid namespace packet")]
+    InvalidNSPacket
 }
 
 
 /// # [`WebTransportNamespaceID`]
 /// The namespace IDs used by the WebTransport layer internally
-#[derive(Serialize, Deserialize)]
-enum WebTransportNamespaceID {
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
+pub enum WebTransportNamespaceID {
     /// The core namespace, used for direct communication
     Core,
     /// A named namespace
@@ -60,11 +69,19 @@ enum WebTransportNamespaceID {
 
 /// # [`WebTransportPacket`]
 /// The packet type used by the webtransport layer when initializing a namespace
-#[derive(Serialize, Deserialize)]
-pub enum WebTransportPacket {
-    /// Sent by the client, triggers the initialization of a namespace
-    InitializeNamespace(WebTransportNamespaceID)
+#[derive(Serialize, Deserialize, PartialEq)]
+enum WebTransportPacket {
+    /// Sent by the client, triggers the initialization of a namespace.
+    InitializeNamespace(WebTransportNamespaceID),
+    /// Response to [`InitializeNamespace`]. If true, the connection successfully initialized the namespace.
+    /// If false, the namespace does not exist.
+    /// Future versions of this response may change. 
+    NamespaceInitResponse(bool),
+    /// Send raw bytes along the namespace
+    Bytes(Vec<u8>),
 }
+
+
 
 
 /// # [`WebTransportCodec`]
@@ -100,7 +117,7 @@ impl WebTransportCodec {
         packet.extend(encoded);
 
         // Send the packet
-        self.send.write_all(&packet).await;
+        self.send.write_all(&packet).await?;
 
         Ok(())
     }
@@ -133,8 +150,43 @@ impl WebTransportCodec {
         }
 
         // Cut off the read bytes from the buffer
-        
+        let packet = self.buf[..length].to_vec();
+        self.buf = self.buf[length..].to_vec();
 
-        todo!()
+        // Deserialize the packet
+        let packet: WebTransportPacket = bincode::deserialize(&packet)?;
+
+        Ok(packet)
+    }
+}
+
+
+/// # [`WebTransportNamespace`]
+/// Allows sending packets along a namespace.
+pub struct WebTransportNamespace<M: Serialize + for<'a> Deserialize<'a>>(WebTransportCodec, WebTransportNamespaceID);
+
+impl<M: Serialize + for<'a> Deserialize<'a>> WebTransportNamespace<M> {
+
+
+
+    /// Send packet along namespace
+    pub async fn send(&mut self, packet: M) -> Result<(), WebTransportLayerError> {
+        self.0.send(&WebTransportPacket::Bytes(bincode::S)).await
+    }
+
+    /// Receive bytes from the namespace
+    pub async fn recv(&mut self) -> Result<Vec<u8>, WebTransportLayerError> {
+        // Receive the packet
+        let packet = self.0.recv().await?;
+
+        match packet {
+            WebTransportPacket::Bytes(bytes) => Ok(bytes),
+            _ => Err(WebTransportLayerError::InvalidNSPacket)
+        }
+    }
+
+    /// Get the namespace id
+    pub fn get_id(&mut self) -> WebTransportNamespaceID {
+        self.1.clone()
     }
 }
