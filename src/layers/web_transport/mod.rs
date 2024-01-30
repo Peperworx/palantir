@@ -13,6 +13,8 @@ use crate::identification::HostedPeerID;
 
 
 pub mod client;
+pub mod namespace;
+
 
 
 /// # [`WebTransportLayerError`]
@@ -171,7 +173,7 @@ impl<M: Serialize + for<'a> Deserialize<'a>> WebTransportNamespace<M> {
 
     /// Send packet along namespace
     pub async fn send(&mut self, packet: M) -> Result<(), WebTransportLayerError> {
-        self.0.send(&WebTransportPacket::Bytes(bincode::S)).await
+        self.0.send(&WebTransportPacket::Bytes(bincode::serialize(&packet))).await
     }
 
     /// Receive bytes from the namespace
