@@ -26,9 +26,9 @@ pub struct WTClient<P> {
 impl<P: Serialize + for<'a> Deserialize<'a>> WTClient<P> {
     /// Creates a new [`WTClient`], connecting to the given host connection options.
     /// Does not initiate any namespaces.
-    pub async fn connect(options: ConnectOptions) -> Result<Self, WTLayerError> {
+    pub async fn connect(options: ConnectOptions, config: ClientConfig) -> Result<Self, WTLayerError> {
         // Create the client endpoint
-        let client = Endpoint::client(ClientConfig::default())?;
+        let client = Endpoint::client(config)?;
 
         // Connect to the host
         let connection = client.connect(options).await
