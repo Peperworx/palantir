@@ -59,8 +59,8 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
         
         // Open a bidirectional channnel. Explicit into needed here due to nested errors.
         let conn = self.conn.open_bi().await
-            .map_err(|v| WTConnectionError::from(v))?
-            .await.map_err(|v| WTStreamError::from(v))?;
+            .map_err(WTConnectionError::from)?
+            .await.map_err(WTStreamError::from)?;
 
 
         // Open the namespace
@@ -84,7 +84,7 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
 
         // Wait for a new bidirectional channel
         let conn = self.conn.accept_bi().await
-            .map_err(|v| WTConnectionError::from(v))?;
+            .map_err(WTConnectionError::from)?;
 
         // Open the namespace
         let mut ns = WTNamespace::<P>::new(conn, None);
@@ -105,7 +105,7 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
     }
 
     fn get_id(&self) -> Self::ID {
-        self.id.clone()
+        self.id
     }
 
     
@@ -127,6 +127,6 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Peer for Arc<WTPeer<P>> {
     }
 
     fn get_id(&self) -> Self::ID {
-        self.get_id()
+        self.deref().get_id()
     }
 }

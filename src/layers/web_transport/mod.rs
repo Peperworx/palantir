@@ -7,7 +7,7 @@
 
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
-use wtransport::{error::{ConnectingError, ConnectionError, StreamOpeningError, StreamReadExactError, StreamReadError, StreamWriteError}};
+use wtransport::error::{ConnectingError, ConnectionError, StreamOpeningError, StreamReadExactError, StreamReadError, StreamWriteError};
 
 use crate::identification::HostedPeerID;
 
@@ -34,6 +34,10 @@ pub enum WTLayerError {
     /// Error serializing or deserializing data
     #[error("serialization error {0}")]
     SerializationError(#[from] bincode::Error),
+
+    /// An IO Error occured
+    #[error("IO Error {0}")]
+    IOError(#[from] std::io::Error),
 
     /// Attempted to open a namespace that already exists
     #[error("attempting to open a namespace that already exists: `{0:?}`")]
@@ -68,22 +72,22 @@ pub enum WTConnectionError {
     /// Error returned during a connection. Not to be confused with ConnectingError
     #[error("connection error {0}")]
     ConnectionError(#[from] ConnectionError),
+
+    /// Error returned when the webtransport client fails to connect
+    #[error("connecting errorr {0}")]
+    ConnectingError(#[from] ConnectingError),
 }
 
 /*
 /// Error returned when a given peer does not exist
     #[error("peer '{0:?}' does not exist")]
     PeerDoesNotExist(HostedPeerID),
-    /// Error returned when the webtransport client fails to connect
-    #[error("connecting errorr {0}")]
-    ConnectingError(#[from] ConnectingError),
+    
 
     
     
     
-    /// An IO Error occured
-    #[error("IO Error {0}")]
-    IOError(#[from] std::io::Error),
+    
 
      */
 
