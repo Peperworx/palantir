@@ -3,6 +3,8 @@
 //! Contains a webtransport client that implements layer. Can only communicate with the host.
 
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use wtransport::Connection;
 use wtransport::endpoint::ConnectOptions;
@@ -12,15 +14,16 @@ use crate::identification::HostedPeerID;
 
 use super::namespace::WTNamespace;
 use super::peer::WTPeer;
-use crate::layers::Peer;
+use crate::layers::{Layer, Peer};
 use super::{WTNamespaceID, WebTransportLayerError};
 
 
 pub struct WTClient<P> {
     /// The peer connection to the host
-    peer: WTPeer<P>,
+    peer: Arc<WTPeer<P>>,
     /// The core namespace
     core: WTNamespace<P>,
+
 }
 
 impl<P: Serialize + for<'a> Deserialize<'a>> WTClient<P> {
@@ -34,7 +37,7 @@ impl<P: Serialize + for<'a> Deserialize<'a>> WTClient<P> {
         let connection = client.connect(options).await?;
 
         // Create the peer
-        let peer = WTPeer::<P>::new(connection, HostedPeerID::Host);
+        let peer = Arc::new(WTPeer::<P>::new(connection, HostedPeerID::Host));
 
         // Open the core namespace
         let core = peer.open_namespace(WTNamespaceID::Core).await?;
@@ -48,3 +51,14 @@ impl<P: Serialize + for<'a> Deserialize<'a>> WTClient<P> {
 }
 
 
+impl<P: Serialize + for<'a> Deserialize<'a> + Send + Sync> Layer for WTClient<P> {
+    type Peer = Arc<WTPeer<P>>;
+
+    fn get_peer(&self, id: HostedPeerID) -> Option<Self::Peer> {
+        if id == HostedPeerID::Host {
+            Some(self.peer.clone())
+        } else {
+            None
+        }
+    }
+}

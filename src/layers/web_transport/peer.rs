@@ -1,14 +1,14 @@
 //! # Webtransport Peer
 //! [`WTPeer`] provides a [`Peer`] implementation wrapping a webtransport [`Connection`]
 
-use std::marker::PhantomData;
+use std::{collections::HashSet, marker::PhantomData, ops::Deref, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use wtransport::Connection;
 
 use crate::{identification::HostedPeerID, layers::{Namespace, Peer}};
 
-use super::{namespace::WTNamespace, WebTransportLayerError, WTNamespaceID};
+use super::{namespace::WTNamespace, WTConnectionError, WTLayerError, WTNamespaceID, WTStreamError};
 
 
 
@@ -17,6 +17,8 @@ pub struct WTPeer<P> {
     pub(super) conn: Connection,
     /// The peer's id
     id: HostedPeerID,
+    // The set of namespaces used
+    namespaces: HashSet<WTNamespaceID>,
     _phantom: PhantomData<P>
 }
 
@@ -25,6 +27,7 @@ impl<P> WTPeer<P> {
         Self {
             conn,
             id,
+            namespaces: HashSet::new(),
             _phantom: Default::default()
         }
     }
@@ -43,13 +46,22 @@ enum WTPeerPacket {
 impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
     type ID = HostedPeerID;
 
-    type Error = WebTransportLayerError;
+    type Error = WTLayerError;
 
     type Namespace = WTNamespace<P>;
 
-    async fn open_namespace(&self, id: <Self::Namespace as crate::layers::Namespace>::ID) -> Result<WTNamespace<P>, WebTransportLayerError> {
-        // Open a bidirectional channnel
-        let conn = self.conn.open_bi().await?.await?;
+    async fn open_namespace(&self, id: <Self::Namespace as crate::layers::Namespace>::ID) -> Result<WTNamespace<P>, WTLayerError> {
+        
+        // If the namespace is already used, then error
+        if self.namespaces.contains(&id) {
+            return Err(WTLayerError::NamespaceExists(id));
+        }
+        
+        // Open a bidirectional channnel. Explicit into needed here due to nested errors.
+        let conn = self.conn.open_bi().await
+            .map_err(|v| WTConnectionError::from(v))?
+            .await.map_err(|v| WTStreamError::from(v))?;
+
 
         // Open the namespace
         let mut ns = WTNamespace::<P>::new(conn, Some(id.clone()));
@@ -64,21 +76,22 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
         if res == WTPeerPacket::NamespaceInitResponse(true) {
             Ok(ns)
         } else {
-            Err(WebTransportLayerError::NamespaceOpenError)
+            Err(WTLayerError::NamespaceDenied)
         }
     }
 
     async fn wait_namespace(&self) -> Result<Self::Namespace, Self::Error> {
 
         // Wait for a new bidirectional channel
-        let conn = self.conn.accept_bi().await?;
+        let conn = self.conn.accept_bi().await
+            .map_err(|v| WTConnectionError::from(v))?;
 
         // Open the namespace
         let mut ns = WTNamespace::<P>::new(conn, None);
 
         // Wait for a namespace initialization
         let WTPeerPacket::InitializeNamespace(nsid) = bincode::deserialize(&ns.recv_raw().await?)? else {
-            return Err(WebTransportLayerError::InvalidNSPacket);
+            return Err(WTLayerError::InvalidNSPacket);
         };
 
         // Update the namespace id
@@ -96,4 +109,24 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
     }
 
     
+}
+
+impl<P: Serialize + for<'a> Deserialize<'a>> Peer for Arc<WTPeer<P>> {
+    type ID = HostedPeerID;
+
+    type Error = WTLayerError;
+
+    type Namespace = WTNamespace<P>;
+
+    async fn open_namespace(&self, id: <Self::Namespace as Namespace>::ID) -> Result<Self::Namespace, Self::Error> {
+        self.deref().open_namespace(id).await
+    }
+
+    async fn wait_namespace(&self) -> Result<Self::Namespace, Self::Error> {
+        self.deref().wait_namespace().await
+    }
+
+    fn get_id(&self) -> Self::ID {
+        self.get_id()
+    }
 }
