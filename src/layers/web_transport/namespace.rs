@@ -8,7 +8,7 @@ use wtransport::{RecvStream, SendStream};
 
 use crate::layers::Namespace;
 
-use super::{WebTransportLayerError, WTNamespaceID};
+use super::{WTLayerError, WTNamespaceID, WTStreamError};
 
 
 
@@ -37,7 +37,7 @@ impl<P> WTNamespace<P> {
     }
 
     /// Send raw bytes
-    pub(crate) async fn send_raw(&mut self, bytes: Vec<u8>) -> Result<(), WebTransportLayerError> {
+    pub(crate) async fn send_raw(&mut self, bytes: Vec<u8>) -> Result<(), WTStreamError> {
 
 
         // Get the packet length and encode it as little endian.
@@ -53,7 +53,7 @@ impl<P> WTNamespace<P> {
     }
 
     /// Receive raw bytes
-    pub(crate) async fn recv_raw(&mut self) -> Result<Vec<u8>, WebTransportLayerError> {
+    pub(crate) async fn recv_raw(&mut self) -> Result<Vec<u8>, WTStreamError> {
 
         // Read in a usize
         let mut length = [0u8; std::mem::size_of::<usize>()];
@@ -98,7 +98,7 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Namespace for WTNamespace<P> {
 
     type Packet = P;
 
-    type Error = WebTransportLayerError;
+    type Error = WTLayerError;
 
     async fn send(&mut self, packet: &Self::Packet) -> Result<(), Self::Error> {
         
