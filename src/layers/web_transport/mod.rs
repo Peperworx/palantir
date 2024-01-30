@@ -12,8 +12,9 @@ use wtransport::{error::{ConnectingError, ConnectionError, StreamOpeningError, S
 use crate::identification::HostedPeerID;
 
 
-pub mod client;
+
 pub mod namespace;
+pub mod peer;
 
 
 
@@ -59,7 +60,7 @@ pub enum WebTransportLayerError {
 
 /// # [`WebTransportNamespaceID`]
 /// The namespace IDs used by the WebTransport layer internally
-#[derive(Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Clone, Eq)]
 pub enum WebTransportNamespaceID {
     /// The core namespace, used for direct communication
     Core,
@@ -162,33 +163,3 @@ impl WebTransportCodec {
     }
 }
 
-
-/// # [`WebTransportNamespace`]
-/// Allows sending packets along a namespace.
-pub struct WebTransportNamespace<M: Serialize + for<'a> Deserialize<'a>>(WebTransportCodec, WebTransportNamespaceID);
-
-impl<M: Serialize + for<'a> Deserialize<'a>> WebTransportNamespace<M> {
-
-
-
-    /// Send packet along namespace
-    pub async fn send(&mut self, packet: M) -> Result<(), WebTransportLayerError> {
-        self.0.send(&WebTransportPacket::Bytes(bincode::serialize(&packet))).await
-    }
-
-    /// Receive bytes from the namespace
-    pub async fn recv(&mut self) -> Result<Vec<u8>, WebTransportLayerError> {
-        // Receive the packet
-        let packet = self.0.recv().await?;
-
-        match packet {
-            WebTransportPacket::Bytes(bytes) => Ok(bytes),
-            _ => Err(WebTransportLayerError::InvalidNSPacket)
-        }
-    }
-
-    /// Get the namespace id
-    pub fn get_id(&mut self) -> WebTransportNamespaceID {
-        self.1.clone()
-    }
-}

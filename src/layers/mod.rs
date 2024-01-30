@@ -24,12 +24,18 @@ pub trait Peer {
 
     /// The type of the peer's identifier
     type ID;
+    
+    /// The error type used by the peer
+    type Error: Error;
 
     /// The namespace type used by the peer
     type Namespace: Namespace;
 
-    /// Get a namespace from the peer
-    fn get_namespace(&self, id: <Self::Namespace as Namespace>::ID) -> Option<Self::Namespace>;
+    /// Open a bidirectional connection with the peer over a namespace
+    async fn open_namespace(&self, id: <Self::Namespace as Namespace>::ID) -> Result<Self::Namespace, Self::Error>;
+
+    /// Wait for a namespace to be initiated with this peer
+    async fn wait_namespace(&self) -> Result<Self::Namespace, Self::Error>;
 }
 
 pub trait Namespace {
@@ -48,4 +54,7 @@ pub trait Namespace {
 
     /// Wait for a packet to be received
     async fn recv(&mut self) -> Result<Self::Packet, Self::Error>;
+
+    /// Get the namespace's ID. Return None if not initializes
+    fn get_id(&self) -> Option<Self::ID>;
 }
