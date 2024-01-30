@@ -8,20 +8,23 @@ use wtransport::Connection;
 
 use crate::{identification::HostedPeerID, layers::{Namespace, Peer}};
 
-use super::{namespace::WTNamespace, WebTransportLayerError, WebTransportNamespaceID};
+use super::{namespace::WTNamespace, WebTransportLayerError, WTNamespaceID};
 
 
 
 pub struct WTPeer<P> {
     /// The connection
-    conn: Connection,
+    pub(super) conn: Connection,
+    /// The peer's id
+    id: HostedPeerID,
     _phantom: PhantomData<P>
 }
 
 impl<P> WTPeer<P> {
-    pub fn new(conn: Connection) -> Self {
+    pub fn new(conn: Connection, id: HostedPeerID) -> Self {
         Self {
             conn,
+            id,
             _phantom: Default::default()
         }
     }
@@ -29,7 +32,7 @@ impl<P> WTPeer<P> {
 #[derive(Serialize, Deserialize, PartialEq)]
 enum WTPeerPacket {
     /// Sent by the client, triggers the initialization of a namespace.
-    InitializeNamespace(WebTransportNamespaceID),
+    InitializeNamespace(WTNamespaceID),
     /// Response to [`InitializeNamespace`]. If true, the connection successfully initialized the namespace.
     /// If false, the namespace does not exist.
     /// Future versions of this response may change. 
@@ -37,7 +40,7 @@ enum WTPeerPacket {
 
 }
 
-impl<P: Serialize + for<'a> Deserialize<'a> + PartialEq> Peer for WTPeer<P> {
+impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
     type ID = HostedPeerID;
 
     type Error = WebTransportLayerError;
@@ -86,6 +89,10 @@ impl<P: Serialize + for<'a> Deserialize<'a> + PartialEq> Peer for WTPeer<P> {
 
         // Return the namespace
         Ok(ns)
+    }
+
+    fn get_id(&self) -> Self::ID {
+        self.id.clone()
     }
 
     

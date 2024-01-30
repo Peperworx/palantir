@@ -36,6 +36,9 @@ pub trait Peer {
 
     /// Wait for a namespace to be initiated with this peer
     async fn wait_namespace(&self) -> Result<Self::Namespace, Self::Error>;
+
+    /// Get the peer's ID
+    fn get_id(&self) -> Self::ID;
 }
 
 pub trait Namespace {

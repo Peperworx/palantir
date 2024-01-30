@@ -16,6 +16,8 @@ use crate::identification::HostedPeerID;
 pub mod namespace;
 pub mod peer;
 
+pub mod client;
+
 
 
 /// # [`WebTransportLayerError`]
@@ -58,10 +60,10 @@ pub enum WebTransportLayerError {
 }
 
 
-/// # [`WebTransportNamespaceID`]
+/// # [`WTNamespaceID`]
 /// The namespace IDs used by the WebTransport layer internally
 #[derive(Serialize, Deserialize, PartialEq, Clone, Eq)]
-pub enum WebTransportNamespaceID {
+pub enum WTNamespaceID {
     /// The core namespace, used for direct communication
     Core,
     /// A named namespace
@@ -75,7 +77,7 @@ pub enum WebTransportNamespaceID {
 #[derive(Serialize, Deserialize, PartialEq)]
 enum WebTransportPacket {
     /// Sent by the client, triggers the initialization of a namespace.
-    InitializeNamespace(WebTransportNamespaceID),
+    InitializeNamespace(WTNamespaceID),
     /// Response to [`InitializeNamespace`]. If true, the connection successfully initialized the namespace.
     /// If false, the namespace does not exist.
     /// Future versions of this response may change. 

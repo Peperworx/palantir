@@ -3,21 +3,28 @@
 //! Contains a webtransport client that implements layer. Can only communicate with the host.
 
 
+use serde::{Deserialize, Serialize};
 use wtransport::Connection;
 use wtransport::endpoint::ConnectOptions;
 use wtransport::{Endpoint, endpoint::endpoint_side::Client, ClientConfig};
 
-use crate::layers::web_transport::{WebTransportPacket, WebTransportCodec, WebTransportNamespace};
+use crate::identification::HostedPeerID;
 
-use super::{WebTransportLayerError, WebTransportNamespaceID};
+use super::namespace::WTNamespace;
+use super::peer::WTPeer;
+use crate::layers::Peer;
+use super::{WTNamespaceID, WebTransportLayerError};
 
-pub struct WebTransportClient {
-    /// The connection to the host
-    connection: Connection,
+
+pub struct WTClient<P> {
+    /// The peer connection to the host
+    peer: WTPeer<P>,
+    /// The core namespace
+    core: WTNamespace<P>,
 }
 
-impl WebTransportClient {
-    /// Creates a new [`WebTransportClient`], connecting to the given host connection options.
+impl<P: Serialize + for<'a> Deserialize<'a>> WTClient<P> {
+    /// Creates a new [`WTClient`], connecting to the given host connection options.
     /// Does not initiate any namespaces.
     pub async fn connect(options: ConnectOptions) -> Result<Self, WebTransportLayerError> {
         // Create the client endpoint
@@ -26,42 +33,18 @@ impl WebTransportClient {
         // Connect to the host
         let connection = client.connect(options).await?;
 
-        // Create the client
-        let mut client = Self {
-            connection
-        };
+        // Create the peer
+        let peer = WTPeer::<P>::new(connection, HostedPeerID::Host);
 
         // Open the core namespace
-        let ns = client.open_namespace(WebTransportNamespaceID::Core).await?;
-
+        let core = peer.open_namespace(WTNamespaceID::Core).await?;
         
-        
-        Ok(client)
+        Ok(Self {
+            peer,
+            core,
+        })
     }
 
-    /// Opens a bidirectional connnection to the specified namespace, or to the core namespace if no
-    /// namespace value is supplied
-    async fn open_namespace(&self, namespace: WebTransportNamespaceID) -> Result<WebTransportNamespace, WebTransportLayerError> {
-
-        // Open a bidirectional channnel
-        let (send, recv) = self.connection.open_bi().await?.await?;
-        
-        // Wrap in the codec.
-        let mut codec = WebTransportCodec::new(send, recv);
-
-        // Trigger opening the namespace
-        codec.send(&WebTransportPacket::InitializeNamespace(namespace.clone())).await?;
-
-        // Read the response. If it is wrong, then generate an error
-        if codec.recv().await? != WebTransportPacket::NamespaceInitResponse(true) {
-            return Err(WebTransportLayerError::NamespaceOpenError);
-        }
-
-        // The namespace has been opened, so we can wrap the codec with a [`WebTransportNamespace`]
-        let ns = WebTransportNamespace(codec, namespace);
-
-        Ok(ns)
-    }
 }
 
 
