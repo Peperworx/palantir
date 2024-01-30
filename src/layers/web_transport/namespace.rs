@@ -1,35 +1,43 @@
 //! # Webtransport Namespace
 //! [`WTNamespace`] wraps a webtransport stream pair and provides a [`Namespace`] implementation fo rthem
 
+use std::marker::PhantomData;
+
 use serde::{Deserialize, Serialize};
 use wtransport::{RecvStream, SendStream};
 
-use crate::{identification::HostedPeerID, layers::Namespace};
+use crate::layers::Namespace;
 
-use super::WebTransportLayerError;
+use super::{WebTransportLayerError, WebTransportNamespaceID};
 
 
 
 /// # [`WTNamespace`]
 /// Wraps a webtransport stream pair and provides a [`Namespace`] implementation.
-pub struct WTNamespace<P: Serialize + for<'a> Deserialize<'a>>{
+pub struct WTNamespace<P>{
     /// The stream pair
     stream: (SendStream, RecvStream),
     /// The receive buffer
     buf: Vec<u8>,
+    /// The namespace's ID
+    id: Option<WebTransportNamespaceID>,
+    /// Phantom data
+    _phantom: PhantomData<P>
 }
 
-impl<Error, P: Serialize + for<'a> Deserialize<'a>> WTNamespace<P> {
+impl<P> WTNamespace<P> {
     /// Create a new [`WTNamespace`]
-    pub fn new(stream: (SendStream, RecvStream)) -> Self {
+    pub fn new(stream: (SendStream, RecvStream), id: Option<WebTransportNamespaceID>) -> Self {
         Self {
             stream,
-            buf: Vec::new()
+            id,
+            buf: Vec::new(),
+            _phantom: Default::default(),
         }
     }
 
     /// Send raw bytes
-    async fn send_raw(&mut self, bytes: Vec<u8>) -> Result<(), WebTransportLayerError> {
+    pub(crate) async fn send_raw(&mut self, bytes: Vec<u8>) -> Result<(), WebTransportLayerError> {
 
 
         // Get the packet length and encode it as little endian.
@@ -45,7 +53,7 @@ impl<Error, P: Serialize + for<'a> Deserialize<'a>> WTNamespace<P> {
     }
 
     /// Receive raw bytes
-    pub async fn recv_raw(&mut self) -> Result<Vec<u8>, WebTransportLayerError> {
+    pub(crate) async fn recv_raw(&mut self) -> Result<Vec<u8>, WebTransportLayerError> {
 
         // Read in a usize
         let mut length = [0u8; std::mem::size_of::<usize>()];
@@ -63,7 +71,7 @@ impl<Error, P: Serialize + for<'a> Deserialize<'a>> WTNamespace<P> {
 
             // Read more bytes
             let mut buf = [0u8; 1024];
-            let len_read = self.recv.read(&mut buf).await?;
+            let len_read = self.stream.1.read(&mut buf).await?;
 
             // Append to buffer
             if let Some(len_read) = len_read {
@@ -77,16 +85,22 @@ impl<Error, P: Serialize + for<'a> Deserialize<'a>> WTNamespace<P> {
 
         Ok(packet)
     }
+
+    // Set the ID
+    pub(crate) fn set_id(&mut self, id: WebTransportNamespaceID) {
+        self.id = Some(id);
+    }
 }
 
-impl<Error, P: Serialize + for<'a> Deserialize<'a>> Namespace for WTNamespace<P> {
-    type ID = HostedPeerID;
+
+impl<P: Serialize + for<'a> Deserialize<'a>> Namespace for WTNamespace<P> {
+    type ID = WebTransportNamespaceID;
 
     type Packet = P;
 
     type Error = WebTransportLayerError;
 
-    async fn send(&self, packet: &Self::Packet) -> Result<(), Self::Error> {
+    async fn send(&mut self, packet: &Self::Packet) -> Result<(), Self::Error> {
         
         // Serialize the packet using bincode
         let encoded = bincode::serialize(packet)?;
@@ -107,5 +121,9 @@ impl<Error, P: Serialize + for<'a> Deserialize<'a>> Namespace for WTNamespace<P>
 
         // Return the decoded packet
         Ok(packet)
+    }
+
+    fn get_id(&self) -> Option<Self::ID> {
+        self.id.clone()
     }
 }
