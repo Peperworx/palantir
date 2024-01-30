@@ -57,7 +57,7 @@ pub fn generate_random_id(namespace: u128) -> [u128; 2] {
 
     // SHA-2 256 hash them
     let mut hasher = sha2::Sha256::new();
-    hasher.update(&id);
+    hasher.update(id);
     let id = hasher.finalize();
 
     // Convert first 128 bits to a u128
