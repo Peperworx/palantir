@@ -8,7 +8,7 @@ use wtransport::{RecvStream, SendStream};
 
 use crate::layers::Namespace;
 
-use super::{WebTransportLayerError, WebTransportNamespaceID};
+use super::{WebTransportLayerError, WTNamespaceID};
 
 
 
@@ -20,14 +20,14 @@ pub struct WTNamespace<P>{
     /// The receive buffer
     buf: Vec<u8>,
     /// The namespace's ID
-    id: Option<WebTransportNamespaceID>,
+    id: Option<WTNamespaceID>,
     /// Phantom data
     _phantom: PhantomData<P>
 }
 
 impl<P> WTNamespace<P> {
     /// Create a new [`WTNamespace`]
-    pub fn new(stream: (SendStream, RecvStream), id: Option<WebTransportNamespaceID>) -> Self {
+    pub fn new(stream: (SendStream, RecvStream), id: Option<WTNamespaceID>) -> Self {
         Self {
             stream,
             id,
@@ -87,14 +87,14 @@ impl<P> WTNamespace<P> {
     }
 
     // Set the ID
-    pub(crate) fn set_id(&mut self, id: WebTransportNamespaceID) {
+    pub(crate) fn set_id(&mut self, id: WTNamespaceID) {
         self.id = Some(id);
     }
 }
 
 
 impl<P: Serialize + for<'a> Deserialize<'a>> Namespace for WTNamespace<P> {
-    type ID = WebTransportNamespaceID;
+    type ID = WTNamespaceID;
 
     type Packet = P;
 
