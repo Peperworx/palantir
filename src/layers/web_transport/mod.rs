@@ -15,7 +15,7 @@ use crate::identification::HostedPeerID;
 
 pub mod namespace;
 pub mod peer;
-
+pub mod host;
 pub mod client;
 
 
