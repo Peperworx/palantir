@@ -94,6 +94,12 @@ impl<P: Serialize + for<'a> Deserialize<'a>> Peer for WTPeer<P> {
             return Err(WTLayerError::InvalidNSPacket);
         };
 
+        // If the namespace is already used, then send failure message and error
+        if self.namespaces.contains(&nsid) {
+            ns.send_raw(bincode::serialize(&WTPeerPacket::NamespaceInitResponse(false))?).await?;
+            return Err(WTLayerError::NamespaceExists(nsid));
+        }
+
         // Update the namespace id
         ns.set_id(nsid);
 
