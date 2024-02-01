@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use palantir::{identification::HostedPeerID, layers::{web_transport::{client::WTClient, WTNamespaceID}, Layer, Namespace, Peer}};
 use wtransport::{endpoint::ConnectOptions, ClientConfig};
 
@@ -48,7 +50,12 @@ impl ServerCertVerifier for NoServerVerification {
 #[tokio::main]
 pub async fn main() {
 
-    let mut client_conf = rustls::ClientConfig::builder().build();
+    let mut client_conf = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoServerVerification))
+        .with_no_client_auth();
+
+    
 
     // Create a new WT client connecting to the local host
     let client = WTClient::<String>::connect(
