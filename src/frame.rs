@@ -5,7 +5,7 @@
 use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
-use wtransport::{error::StreamReadExactError, RecvStream, SendStream};
+use wtransport::{error::StreamReadExactError, RecvStream, SendStream, VarInt};
 
 use crate::error::{FramedError, TransmissionError};
 
@@ -98,6 +98,12 @@ impl<P: Serialize> SendFramed<P> {
         self.0.write_all(&frame).await.map_err(TransmissionError::from)?;
 
         Ok(())
+    }
+
+    /// # [`SendFramed::close`]
+    /// Closes the connection with the given code
+    pub async fn close(&mut self) {
+        self.0.finish().await;
     }
 }
 

@@ -13,7 +13,7 @@ use std::{collections::HashMap, future::Future, marker::PhantomData, net::IpAddr
 use error::{FramedError, HandshakeError, PalantirError, TransmissionError};
 use fluxion::{Delegate, Fluxion, Identifier, IndeterminateMessage, MessageSender};
 use frame::Framed;
-use message::{PalantirMessage, Side};
+use message::{handshake, PalantirMessage, Side};
 use tokio::{sync::Mutex, task::JoinSet};
 use validation::Validator;
 use wtransport::{endpoint::ConnectOptions, tls::client::NoServerVerification, ClientConfig, Connection, Endpoint, Identity, ServerConfig};
@@ -115,20 +115,28 @@ impl<V: Validator> Palantir<V> {
     /// # [`Palantir::handle_connection`]
     /// This future is spawned as a new task whenever a new connection
     /// is created.
-    pub async fn handle_connection(self: Arc<Self>, connection: Arc<Connection>, state: V::State, name: String, side: Side) -> Result<(), Vec<PalantirError>> {
+    pub async fn handle_connection(self: Arc<Self>, connection: Arc<Connection>, name: String, mut state: V::State, side: Side) -> Result<(), Vec<PalantirError>> {
 
-        // Call the callbacks for a new connection
+        // Handle the handshake on this connection
+        handshake(
+            &self,
+            &connection,
+            &name,
+            &mut state,
+            side
+        ).await.map_err(|e| e.into_iter().map(|v| PalantirError::from(v)).collect::<Vec<_>>())?;
+
+
+        // Handle the callbacks for a new connection
         let callbacks = self.new_peer_callbacks.lock().await ;
         
         for cb in callbacks.iter() {
             cb(&name).await;
         }
 
-        //
+        
 
-        // Create the stack of errors to return if the loop exits.
-        let mut error_stack = Vec::<PalantirError>::new();
-
+       
         // In a loop, accept new channels
         loop {
 
@@ -140,33 +148,20 @@ impl<V: Validator> Palantir<V> {
             let (send, recv) = match next_channel {
                 Ok(v) => v,
                 Err(e) => {
-                    error_stack.push(PalantirError::ConnectionError(e.into()));
-                    break;
+                    return Err(vec![PalantirError::ConnectionError(e.into())]);
                 }
             };
 
             // Wrap in packet framing
             let mut framed = Framed::<PalantirMessage<V>>::new(send, recv);
 
-            // Attempt handshake
-            let res = self.handshake(&mut framed, side, &name, &mut state).await;
-
+            
 
         };
-
-        // it is guarenteed that the loop will only ever exit if it errors
-        Err(error_stack)
     }
 
 
-    /// # [`Palantir::handshake`]
-    /// Runs a handshake over the given connection, depending on the side
-    async fn handshake(&self, framed: &mut Framed<PalantirMessage<V>>, side: Side, name: &str, state: &mut V::State) -> Result<(), Vec<HandshakeError>> {
-        match side {
-            Side::Initiator => self.client_handshake(framed, name, state).await,
-            Side::Acceptor => todo!(),
-        }
-    }
+   
 
     /// Runs the handshake from a clients side
     async fn client_handshake(&self, framed: &mut Framed<PalantirMessage<V>>, name: &str, state: &mut V::State) -> Result<(), Vec<HandshakeError>> {
