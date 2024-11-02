@@ -17,6 +17,8 @@ pub enum PalantirMessage<V> {
         magic: [char; 8],
         /// The name of the connecting peer
         name: String,
+        /// The actor the connecting peer wants to connect to
+        actor: u64,
         /// The arbitrary validation sent by the client
         validation: V,
     } = 0,
