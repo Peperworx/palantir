@@ -168,21 +168,21 @@ impl<V: Validator> Palantir<V> {
         let Ok(next) = framed.recv().await else {
             // Send the client a message saying there was an invalid packet,
             // ignoring the returned result just in case it was a connection error.
-            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            let _ = framed.send(&PalantirMessage::MalformedData).await;
             return;
         };
 
         // Unpack the client's handshake, or inform of an invalid packet.
         let PalantirMessage::ClientHandshake { magic, name, validation } = next else {
             // Ignore the result, as we are exiting anyways.
-            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            let _ = framed.send(&PalantirMessage::UnexpectedPacket).await;
             return;
         };
 
         // If the magic value is wrong, return
         if magic != ['P', 'A', 'L', 'A', 'N', 'T', 'I', 'R'] {
             // Ignore the result, as we are exiting anyways.
-            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            let _ = framed.send(&PalantirMessage::MalformedData).await;
             return;
         }
 
@@ -201,7 +201,7 @@ impl<V: Validator> Palantir<V> {
 
         // Wait for the client's response
         let Ok(next) = framed.recv().await else {
-            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            let _ = framed.send(&PalantirMessage::MalformedData).await;
             return;
         };
 
@@ -210,26 +210,7 @@ impl<V: Validator> Palantir<V> {
             return;
         };
 
-        // Now the client is validated
-
-        // Split off the sender and receiver.
-        let (send, recv) = (framed.0, framed.1);
-
-        // Wrap the sender in a mutex, as it will solely
-        // be used to send responses, which whill be sent from other threads.
-        // It is likely more efficient to just use an arc and mutex than
-        // to use a channel and select here.
-        let send = Arc::new(Mutex::new(send));
-
-        loop {
-            
-            // Receive the next packet
-            let Ok(next) = recv.recv().await else {
-
-            };
-
-            todo!()
-        }
+        
     }
 }
 
