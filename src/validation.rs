@@ -5,6 +5,9 @@
 use serde::{Deserialize, Serialize};
 use wtransport::endpoint::{IncomingSession, SessionRequest};
 
+use crate::message::Side;
+
+
 
 
 /// # [`Validator`]
@@ -12,46 +15,20 @@ use wtransport::endpoint::{IncomingSession, SessionRequest};
 /// to continue connecting at different stages.
 pub trait Validator: Send + Sync + 'static {
 
-    /// The data type that a client sends during a handshake with the server
-    /// on every new connection.
-    type Validation: Serialize + for<'a> Deserialize<'a> + Send + Sync + 'static;
+    /// The state type that is maintained during the connection.
+    /// This can be used for anything the validator needs.
+    type State: Sized;
+
+    /// The [`Validator`] is provided a window
+    /// during the handshake to perform its own operations.
+    /// This is the packet type used during this window.
+    type Packet: Serialize + for<'a> Deserialize<'a>;
     
-    /// # [`Validator::validate_incoming_session`]
-    /// This method should return `true` if a client sending a given
-    /// session should be granted entry, and false otherwise.
-    fn validate_incoming_session(&self, incoming: &IncomingSession) -> impl std::future::Future<Output = bool> + Send;
+    /// # [`Validate::create_new_state`]
+    /// Creates a new instance of [`Validator::State`] that will be used
+    /// during communications with the given peer.
+    async fn create_new_state(&self, mode: Side) -> Self::State;
 
-    /// # [`Validator::validate_session_request`]
-    /// This method should return `true` if a client sending a given
-    /// session request should be granted access, and false otherwise.
-    fn validate_session_request(&self, request: &SessionRequest) -> impl std::future::Future<Output = bool> + Send;
-
-    /// # [`Validator::validate_validation`]
-    /// This method should return `true` if a client sending a given
-    /// validation and claiming a given name should be granted access, and false otherwise.
-    fn validate_validation(&self, validation: &Self::Validation, name: &str) -> impl std::future::Future<Output = bool> + Send;
+    
 }
 
-
-impl<
-    A: Validator<Validation = V>,
-    B: Validator<Validation = V>,
-    V: Serialize + for<'a> Deserialize<'a> + Send + Sync + 'static
-    > Validator for (A, B) {
-    type Validation = V;
-
-    async fn validate_incoming_session(&self, incoming: &IncomingSession) -> bool {
-        self.0.validate_incoming_session(incoming).await &
-        self.1.validate_incoming_session(incoming).await
-    }
-
-    async fn validate_session_request(&self, request: &SessionRequest) -> bool {
-        self.0.validate_session_request(request).await &
-        self.1.validate_session_request(request).await
-    }
-
-    async fn validate_validation(&self, validation: &Self::Validation, name: &str) -> bool {
-        self.0.validate_validation(validation, name).await &
-        self.1.validate_validation(validation, name).await
-    }
-}

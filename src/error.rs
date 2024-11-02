@@ -1,29 +1,33 @@
 use std::{io, net::SocketAddr};
 
 use thiserror::Error;
-use wtransport::error::StreamWriteError;
+use wtransport::{error::StreamWriteError, proto::frame::Frame};
 
 
 
 #[derive(Debug, Error)]
 pub enum PalantirError {
-    #[error("unable to initialize as peer didn't respond properly")]
-    PeerIncorrectlyResponded,
-    #[error("peer claimed to have a name that already exists. this is likely due to a previous connection")]
-    DuplicateName,
-    #[error("{0}")]
-    ClientConnectingError(#[from] ClientConnectingError),
-    #[error("{0}")]
-    TransmissionError(#[from] TransmissionError),
     #[error("{0}")]
     ConnectionError(#[from] ConnectionError),
     #[error("{0}")]
-    FramedError(#[from] FramedError),
-    #[error("{0}")]
-    IoError(#[from] io::Error)
+    HandshakeError(#[from] HandshakeError),
 }
 
-
+/// # [`HandshakeError`]
+/// Error that occurs during a handshake with a peer
+#[derive(Debug, Error)]
+pub enum HandshakeError {
+    
+    /// There was a framed error during the handshake
+    #[error("{0}")]
+    FramedError(#[from] FramedError),
+    /// The peer sent an unexpected packet
+    #[error("unexpected packet recieved from peer")]
+    UnexpectedPacket,
+    /// The peer sent an invalid magic vlaue
+    #[error("invalid magic number received from peer")]
+    InvalidMagic,
+}
 
 
 /// # [`ClientConnectingError`]
