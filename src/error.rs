@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{io, net::SocketAddr};
 
 use thiserror::Error;
 use wtransport::error::StreamWriteError;
@@ -7,8 +7,20 @@ use wtransport::error::StreamWriteError;
 
 #[derive(Debug, Error)]
 pub enum PalantirError {
-    #[error("error initializing server endpoint")]
-    UnableToInitializeServer,
+    #[error("unable to initialize as peer didn't respond properly")]
+    PeerIncorrectlyResponded,
+    #[error("peer claimed to have a name that already exists. this is likely due to a previous connection")]
+    DuplicateName,
+    #[error("{0}")]
+    ClientConnectingError(#[from] ClientConnectingError),
+    #[error("{0}")]
+    TransmissionError(#[from] TransmissionError),
+    #[error("{0}")]
+    ConnectionError(#[from] ConnectionError),
+    #[error("{0}")]
+    FramedError(#[from] FramedError),
+    #[error("{0}")]
+    IoError(#[from] io::Error)
 }
 
 

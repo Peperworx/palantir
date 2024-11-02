@@ -10,13 +10,13 @@ mod message;
 
 use std::{collections::HashMap, marker::PhantomData, net::IpAddr, sync::Arc};
 
-use error::PalantirError;
+use error::{PalantirError, TransmissionError};
 use fluxion::{Delegate, Fluxion, Identifier, IndeterminateMessage, MessageSender};
 use frame::Framed;
 use message::PalantirMessage;
 use tokio::{sync::Mutex, task::JoinSet};
 use validation::Validator;
-use wtransport::{Connection, Endpoint, Identity, ServerConfig};
+use wtransport::{endpoint::ConnectOptions, tls::client::NoServerVerification, ClientConfig, Connection, Endpoint, Identity, ServerConfig};
 
 
 /// # [`Palantir`]
@@ -29,7 +29,7 @@ pub struct Palantir<V> {
     /// Because this will need to be accessed concurrently, a mutex is used.
     /// The tokio mutex is used because it will need to be held across await
     /// points to send data to a client.
-    peers: Mutex<HashMap<String, ()>>,
+    peers: Mutex<HashMap<String, Connection>>,
     /// A joinset containing all tasks spawned by this palantir instance.
     /// This is created to ensure that every task created by palantir is
     /// terminated when palantir is dropped. A stdlib mutex is used,
@@ -77,8 +77,87 @@ impl<V: Validator> Palantir<V> {
     /// Connects to a new peer, sending the given validation.
     /// If the peer successfully connects, adds it to the map of known peers,
     /// returning its name.
-    pub async fn new_peer<I: TryInto<IpAddr>>(&self, address: I, validation: V::Validation) {
-        todo!();
+    pub async fn new_peer<S: ToString>(&self, address: S, validation: V::Validation, headers: &HashMap<String, String>) -> Result<(), PalantirError> {
+        
+        // Create the client endpoint
+        let endpoint = Endpoint::client(
+            ClientConfig::builder()
+                .with_bind_default()
+                .with_custom_tls(
+                    wtransport::tls::rustls::ClientConfig::builder()
+                        .dangerous()
+                        .with_custom_certificate_verifier(Arc::new(NoServerVerification::new()))
+                        .with_no_client_auth()
+                )
+                .build()
+        ).map_err(|e| PalantirError::ClientConnectingError(e.into()))?;
+
+        // Build connection options with headers
+        let mut opts = ConnectOptions::builder(address)
+            .add_header("name",&self.name);
+
+        for (key, value) in headers.iter() {
+            opts = opts.add_header(key, value)
+        }        
+
+        // Connect to the server
+        let conn = endpoint.connect(
+            opts
+        ).await.map_err(
+            |e| PalantirError::ClientConnectingError(e.into())
+        )?;
+
+        // Now we need to run the handshake.
+
+
+        // First, open a bidirectional channel just for the handshake
+        let (send, recv) = conn.open_bi().await.map_err(
+            |e| PalantirError::ConnectionError(e.into())
+        )?.await.map_err(|e| PalantirError::TransmissionError(e.into()))?;
+
+        // Wrape it in packet framing.
+        let mut framed = Framed::<PalantirMessage<V::Validation>>::new(send, recv);
+        
+        // Construct and send the client handshake request
+        framed.send(&PalantirMessage::ClientHandshake {
+            magic: ['P', 'A', 'L', 'A', 'N', 'T', 'I', 'R'],
+            name: self.name.clone(),
+            validation
+        }).await?;
+
+
+        // Wait for the server's response.
+        let PalantirMessage::ServerResponse { magic, name } = framed.recv().await? else {
+            // Send the peer a message indicating it failed and return an error
+            framed.send(&PalantirMessage::UnexpectedPacket).await?;
+            return Err(PalantirError::PeerIncorrectlyResponded);
+        };
+
+        // If the magic is wrong, the data is malformed, most likely because the peer
+        // is not a palantir server.
+        if magic != ['P', 'A', 'L', 'A', 'N', 'T', 'I', 'R'] {
+            framed.send(&PalantirMessage::MalformedData).await?;
+            return Err(PalantirError::PeerIncorrectlyResponded);
+        }
+
+        // Now we have the peer's name.
+        // Check if it exists
+        if let Some(peer) = self.peers.lock().await.get(&name) {
+            // If it does, check the addresses.
+            // If they match, noop
+            if peer.remote_address() == conn.remote_address() {
+                return Ok(());
+            }
+
+            // Otherwise, error
+            return Err(PalantirError::DuplicateName);
+        }
+
+        // If not, lets add it
+        self.peers.lock().await.insert(name, conn);
+
+        // The peer has been added.
+        Ok(())
     }
 
     /// # [`Palantir::run`]
@@ -94,7 +173,7 @@ impl<V: Validator> Palantir<V> {
                 .with_bind_default(self.listen_port)
                 .with_identity(Identity::self_signed(["localhost","127.0.0.1"]).expect("key generation shouldn't fail"))
                 .build()
-        ).map_err(|_| PalantirError::UnableToInitializeServer)?;
+        )?;
 
 
 
@@ -116,6 +195,18 @@ impl<V: Validator> Palantir<V> {
                 continue;
             };
 
+            // The name header must be set. This is the name that the other peer is requesting.
+            let Some(name) = request.headers().get("name") else {
+                request.forbidden().await;
+                continue;
+            };
+
+            // If the name already exists, deny the peer
+            if self.peers.lock().await.contains_key(name) {
+                request.forbidden().await;
+                continue;
+            }
+
             // Validate the request
             if !validator.validate_session_request(&request).await {
                 request.forbidden().await;
@@ -130,7 +221,7 @@ impl<V: Validator> Palantir<V> {
 
             // Spawn a task to handle the connection
             self.join_set.lock().expect("join set lock shouldn't be poisoned")
-                .spawn(self.clone().handle_connection(connection, system.clone(), validator.clone()));
+                .spawn(self.clone().handle_connection(connection, system.clone(), validator.clone(), name));
 
         }
     }
@@ -138,8 +229,11 @@ impl<V: Validator> Palantir<V> {
 
     /// # [`Palantir::handle_connection`]
     /// Handles a new connection from a peer, specifically accepting new channels.
-    async fn handle_connection(self: Arc<Self>, connection: Connection, system: Fluxion<Arc<Self>>, validator: Arc<V>) {
+    async fn handle_connection(self: Arc<Self>, connection: Connection, system: Fluxion<Arc<Self>>, validator: Arc<V>, name: String) {
         
+        
+
+
         // Accept bidirectional channels in a loop
         loop {
 
@@ -164,51 +258,9 @@ impl<V: Validator> Palantir<V> {
     /// Handles a new channel from a peer, including the handshake
     async fn handle_channel(self: Arc<Self>, mut framed: Framed<PalantirMessage<V::Validation>>, system: Fluxion<Arc<Self>>, validator: Arc<V>) {
 
-        // Receive the next packet from the client
-        let Ok(next) = framed.recv().await else {
-            // Send the client a message saying there was an invalid packet,
-            // ignoring the returned result just in case it was a connection error.
-            let _ = framed.send(&PalantirMessage::MalformedData).await;
-            return;
-        };
+        
 
-        // Unpack the client's handshake, or inform of an invalid packet.
-        let PalantirMessage::ClientHandshake { magic, name, validation } = next else {
-            // Ignore the result, as we are exiting anyways.
-            let _ = framed.send(&PalantirMessage::UnexpectedPacket).await;
-            return;
-        };
 
-        // If the magic value is wrong, return
-        if magic != ['P', 'A', 'L', 'A', 'N', 'T', 'I', 'R'] {
-            // Ignore the result, as we are exiting anyways.
-            let _ = framed.send(&PalantirMessage::MalformedData).await;
-            return;
-        }
-
-        // Run the validation
-        if !validator.validate_validation(&validation, &name).await {
-            // Ignore the result, as we are exiting anyways.
-            let _ = framed.send(&PalantirMessage::ValidationFailed).await;
-            return;
-        }
-
-        // Send the server's response
-        framed.send(&PalantirMessage::ServerResponse {
-            magic: ['P', 'A', 'L', 'A', 'N', 'T', 'I', 'R'],
-            name: self.name.clone(),
-        });
-
-        // Wait for the client's response
-        let Ok(next) = framed.recv().await else {
-            let _ = framed.send(&PalantirMessage::MalformedData).await;
-            return;
-        };
-
-        // If it's not a client response, then return and do nothing
-        let PalantirMessage::ClientResponse = next else {
-            return;
-        };
 
         
     }

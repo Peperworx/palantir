@@ -4,24 +4,35 @@
 use serde::{Deserialize, Serialize};
 
 
+/// # [`ActorID`]
+/// A way to represent an actor over the network.
+/// Can either be an actor's numerical ID, or a name for the actor.
+#[derive(Serialize, Deserialize, Debug)]
+#[repr(u8)]
+pub enum ActorID {
+    ID(u64) = 0,
+    Name(String) = 1,
+}
 
 /// # [`PalantirMessage`]
 /// The message structure that palantir sends over the wire, serialized using [`postcard`]
 #[derive(Serialize, Deserialize, Debug)]
 #[repr(u8)]
 pub enum PalantirMessage<V> {
+
+
     /// # [`PalantirMessage::ClientHandshake`]
     /// The handshake sent from a client to the server when the connection is opened.
+    /// Indicates that the connection is a handshake connection and that it should be used for
+    /// validation only, then closed.
     ClientHandshake {
         /// The magic string. Should always be "PALANTIR"
         magic: [char; 8],
         /// The name of the connecting peer
         name: String,
-        /// The actor the connecting peer wants to connect to
-        actor: u64,
         /// The arbitrary validation sent by the client
         validation: V,
-    } = 0,
+    },
     /// # [`PalantirMessage::ServerResponse`]
     /// The handshake sent from the server to a client after the client handshake.
     ServerResponse {
@@ -29,19 +40,18 @@ pub enum PalantirMessage<V> {
         magic: [char; 8],
         /// The name of the server
         name: String,
-    } = 1,
+    },
     /// # [`PalantirMessage::ClientResponse`]
-    /// An empty packet sent by the client to verify it has received the server's response and everything is OK.
-    ClientResponse = 2,
-    /// # [`PalantirMessage::ValidationFailed`]
-    /// Sent by the server to indicate to the client that the validation failed.
-    ValidationFailed = 3,
-    /// # [`PalantirMessage::MalformedData`]
-    /// Sent by a peer when it receives invalid data
-    MalformedData = 4,
-    /// # [`PalantirMessage::UnexpectedPacket`]
-    /// Sent by a peer when it receives an unexpected packet
-    UnexpectedPacket = 5,
+    /// Sent by the client to acknowledge the handshake's completion
+    ClientResponse,
+
+
+    /// # [`PalantirMessage::Connect`]
+    /// Indicates to the client that it wants to send messages to the given actor.
+    Connect(ActorID),
+    /// # [`PalantirMessage::ActorDoesntExist`]
+    /// Sent when the actor requested by the client doesn't exist.
+    ActorDoesntExist,
     /// # [`PalantirMessage::Request`]
     /// A request containing arbitrary data from a client
     Request {
@@ -49,7 +59,7 @@ pub enum PalantirMessage<V> {
         id: u64,
         /// The request data
         data: Vec<u8>,
-    } = 6,
+    },
     /// # [`PalantirMessage::Response`]
     /// A response from the server, containing arbitrary data
     Response {
@@ -57,5 +67,14 @@ pub enum PalantirMessage<V> {
         id: u64,
         /// The response data
         data: Vec<u8>,
-    } = 7,
+    },
+    
+
+    /// # [`PalantirMessage::MalformedData`]
+    /// Sent by a peer when it receives invalid data
+    MalformedData,
+    /// # [`PalantirMessage::UnexpectedPacket`]
+    /// Sent by a peer when it receives an unexpected packet
+    UnexpectedPacket,
+
 }
