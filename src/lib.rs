@@ -115,16 +115,15 @@ impl<V: Validator> Palantir<V> {
     /// # [`Palantir::handle_connection`]
     /// This future is spawned as a new task whenever a new connection
     /// is created.
-    pub async fn handle_connection(self: Arc<Self>, connection: Arc<Connection>, name: String, mut state: V::State, side: Side) -> Result<(), Vec<PalantirError>> {
+    pub async fn handle_connection(self: Arc<Self>, connection: Arc<Connection>, mut state: V::State, side: Side) -> Result<(), Vec<PalantirError>> {
 
-        // Handle the handshake on this connection
-        handshake(
+        // Handle the handshake on this connection, returning the name of the given peer
+        let name = handshake(
             &self,
             &connection,
-            &name,
             &mut state,
             side
-        ).await.map_err(|e| e.into_iter().map(|v| PalantirError::from(v)).collect::<Vec<_>>())?;
+        ).await.map_err(|e| e.into_iter().map(PalantirError::from).collect::<Vec<_>>())?;
 
 
         // Handle the callbacks for a new connection
@@ -141,16 +140,8 @@ impl<V: Validator> Palantir<V> {
         loop {
 
             // Accept the next channel
-            let next_channel = connection.accept_bi().await;
-
-
-            // Handle any errors
-            let (send, recv) = match next_channel {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(vec![PalantirError::ConnectionError(e.into())]);
-                }
-            };
+            let (send, recv) = connection.accept_bi().await
+                .map_err(|e| vec![PalantirError::ConnectionError(e.into())])?;
 
             // Wrap in packet framing
             let mut framed = Framed::<PalantirMessage<V>>::new(send, recv);
@@ -158,106 +149,6 @@ impl<V: Validator> Palantir<V> {
             
 
         };
-    }
-
-
-   
-
-    /// Runs the handshake from a clients side
-    async fn client_handshake(&self, framed: &mut Framed<PalantirMessage<V>>, name: &str, state: &mut V::State) -> Result<(), Vec<HandshakeError>> {
-
-        
-        // # Step 1
-        // Client sends initiation to server
-
-        // Construct the initiation
-        let initiation = PalantirMessage::<V>::ClientInitiation {
-            magic: "PALANTIR".to_string(),
-            name: self.name.clone()
-        };
-
-        // Send the initiation
-        let sent_result = framed.send(&initiation).await;
-
-        // If there was an error, log it and return
-        match sent_result {
-            Err(e) => {
-                // Because this is the only error in the chain, we can just return a new vec.
-                return Err(vec![e.into()]);
-            },
-            Ok(_) => (),
-        }
-
-        
-        // # Step 2
-        // Server sends response to client
-
-        // This is where error handling might get a bit trickier.
-
-        // Receive the server's response
-        let server_response = framed.recv().await;
-
-        
-        let server_response = match server_response {
-            Err(e @ FramedError::TransmissionError(_)) => {
-                // Because this is the only error in the chain, we can just return a new vec.
-                return Err(vec![e.into()]);
-            },
-            Err(e @ FramedError::InvalidEncoding { packet : _}) => {
-
-                // Create a vec with the error
-                let mut errs: Vec<HandshakeError> = vec![e.into()];
-
-                // Tell the peer it sent an invalid packet
-                let res = framed.send(&PalantirMessage::MalformedData).await;
-
-                // If there was another error, log it
-                if let Err(e) = res {
-                    errs.push(e.into());
-                }
-
-                return Err(errs);
-            },
-            Err(_) => unreachable!("received packets can't exceed our default send size limit"),
-            Ok(v) => v,
-        };
-
-        // Destructure the server's response
-        let PalantirMessage::ServerResponse { magic, name } = server_response else {
-
-            // Create the error containing the unexpected packet errror
-            let mut errs = vec![HandshakeError::UnexpectedPacket];
-
-            // Tell the peer it sent an unexpected packet
-            let res = framed.send(&PalantirMessage::UnexpectedPacket).await;
-
-            // If there was another error, log it
-            if let Err(e) = res {
-                errs.push(e.into());
-            }
-
-            return Err(errs);
-        };
-
-        // Validate the magic
-        if magic != "PALANTIR" {
-
-            let mut errs = vec![HandshakeError::InvalidMagic];
-
-            // Tell the peer it sent an invalid magic value
-            let res = framed.send(&PalantirMessage::InvalidMagic).await;
-
-            // If there was another error, log it
-            if let Err(e) = res {
-                errs.push(e.into());
-            }
-
-            return Err(errs);
-        }
-
-
-
-        todo!()
     }
 }
 
