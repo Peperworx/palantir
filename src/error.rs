@@ -1,16 +1,18 @@
 use std::{io, net::SocketAddr};
 
 use thiserror::Error;
-use wtransport::{error::StreamWriteError, proto::frame::Frame};
+use wtransport::error::StreamWriteError;
 
 
 
 #[derive(Debug, Error)]
 pub enum PalantirError {
+    
     #[error("{0}")]
-    ConnectionError(#[from] ConnectionError),
+    ConnectingError(#[from] ConnectingError),
     #[error("{0}")]
     HandshakeError(#[from] HandshakeError),
+    
 }
 
 /// # [`HandshakeError`]
@@ -27,100 +29,17 @@ pub enum HandshakeError {
     /// The peer sent an invalid magic vlaue
     #[error("invalid magic number received from peer")]
     InvalidMagic,
-}
-
-
-/// # [`ClientConnectingError`]
-/// Error when a client was attempting to connect to a server
-#[derive(Debug, Error)]
-pub enum ClientConnectingError {
-    #[error("IO Error when connecting to server: {0}")]
-    IoError(#[from] std::io::Error),
-    #[error("WebTransport connecting error: {0}")]
-    ConnectingError(#[from]wtransport::error::ConnectingError),
-}
-
-
-
-/// # [`FramedError`]
-/// Represents an error that that can occur during the transmission
-/// and reception of framed packets.
-#[derive(Debug, Error)]
-pub enum FramedError {
-    /// A received packet had an invalid encoding
-    #[error("received framed packet with invalid encoding")]
-    InvalidEncoding {
-        packet: Vec<u8>,
-    },
-    /// A packet was unable to be sent because it exceeds a size limit
-    #[error("sent packet of size {packet_size} exceeds size limit of {size_limit} ({reason})")]
-    ExceedsSizeLimit {
-        packet_size: usize,
-        size_limit: usize,
-        reason: String,
-    },
-    /// An error occured during the attempted transmission of a packet
+    /// The peer tried to use a name that already exists
+    #[error("peer sent a name that is already in use")]
+    NameTaken,
     #[error("{0}")]
-    TransmissionError(#[from] TransmissionError)
-}
-
-/// # [`TransmissionError`]
-/// Represents a general error that could occur during the transmission of a payload.
-#[derive(Debug, Error)]
-pub enum TransmissionError {
-    /// Attempted to send or receive data without being connected
-    #[error("attempted to send or receive data without being connected")]
-    NotConnected,
-    /// A peer disconnected with the given code
-    #[error("peer disconnected with code {0:x}")]
-    PeerDisconnected(u64),
-    /// There was an internal error with the underlying transport.
-    /// The reason behind this error is not generally revealed to Replix.
-    #[error("error occured in underlying transport")]
-    TransportError,
-    /// We were expecting to receive a specific number of bytes,
-    /// but less were sent than expected.
-    #[error("expected to receive {expected_size}, but only received {received_size}")]
-    TransmissionEndedEarly {
-        expected_size: usize,
-        received_size: usize,
-        reason: String,
-    },
-    /// The peer refused to open a new connection
-    #[error("peer refused to open a new connection")]
-    Refused,
-}
-
-impl From<wtransport::error::StreamReadError> for TransmissionError {
-    fn from(value: wtransport::error::StreamReadError) -> Self {
-        match value {
-            wtransport::error::StreamReadError::NotConnected => Self::NotConnected,
-            wtransport::error::StreamReadError::Reset(var_int) => Self::PeerDisconnected(var_int.into_inner()),
-            wtransport::error::StreamReadError::QuicProto => Self::TransportError,
-        }
-    }
+    TransmissionError(#[from] TransmissionError),
+    #[error("{0}")]
+    ConnectionError(#[from] ConnectionError),
 }
 
 
-impl From<StreamWriteError> for TransmissionError {
-    fn from(value: StreamWriteError) -> Self {
-        match value {
-            StreamWriteError::NotConnected => Self::NotConnected,
-            StreamWriteError::Stopped(var_int) => Self::PeerDisconnected(var_int.into_inner()),
-            StreamWriteError::QuicProto => Self::TransportError,
-            StreamWriteError::Closed => Self::NotConnected,
-        }
-    }
-}
 
-impl From<wtransport::error::StreamOpeningError> for TransmissionError {
-    fn from(value: wtransport::error::StreamOpeningError) -> Self {
-        match value {
-            wtransport::error::StreamOpeningError::NotConnected => Self::NotConnected,
-            wtransport::error::StreamOpeningError::Refused => Self::Refused,
-        }
-    }
-}
 
 
 /// # [`ConnectionError`]
@@ -211,3 +130,86 @@ impl From<wtransport::error::ConnectingError> for ConnectingError {
         }
     }
 }
+
+
+
+/// # [`FramedError`]
+/// Represents an error that that can occur during the transmission
+/// and reception of framed packets.
+#[derive(Debug, Error)]
+pub enum FramedError {
+    /// A received packet had an invalid encoding
+    #[error("received framed packet with invalid encoding")]
+    InvalidEncoding {
+        packet: Vec<u8>,
+    },
+    /// A packet was unable to be sent because it exceeds a size limit
+    #[error("sent packet of size {packet_size} exceeds size limit of {size_limit} ({reason})")]
+    ExceedsSizeLimit {
+        packet_size: usize,
+        size_limit: usize,
+        reason: String,
+    },
+    /// An error occured during the attempted transmission of a packet
+    #[error("{0}")]
+    TransmissionError(#[from] TransmissionError)
+}
+
+/// # [`TransmissionError`]
+/// Represents a general error that could occur during the transmission of a payload.
+#[derive(Debug, Error)]
+pub enum TransmissionError {
+    /// Attempted to send or receive data without being connected
+    #[error("attempted to send or receive data without being connected")]
+    NotConnected,
+    /// A peer disconnected with the given code
+    #[error("peer disconnected with code {0:x}")]
+    PeerDisconnected(u64),
+    /// There was an internal error with the underlying transport.
+    /// The reason behind this error is not generally revealed to Replix.
+    #[error("error occured in underlying transport")]
+    TransportError,
+    /// We were expecting to receive a specific number of bytes,
+    /// but less were sent than expected.
+    #[error("expected to receive {expected_size}, but only received {received_size}")]
+    TransmissionEndedEarly {
+        expected_size: usize,
+        received_size: usize,
+        reason: String,
+    },
+    /// The peer refused to open a new connection
+    #[error("peer refused to open a new connection")]
+    Refused,
+}
+
+impl From<wtransport::error::StreamReadError> for TransmissionError {
+    fn from(value: wtransport::error::StreamReadError) -> Self {
+        match value {
+            wtransport::error::StreamReadError::NotConnected => Self::NotConnected,
+            wtransport::error::StreamReadError::Reset(var_int) => Self::PeerDisconnected(var_int.into_inner()),
+            wtransport::error::StreamReadError::QuicProto => Self::TransportError,
+        }
+    }
+}
+
+
+impl From<StreamWriteError> for TransmissionError {
+    fn from(value: StreamWriteError) -> Self {
+        match value {
+            StreamWriteError::NotConnected => Self::NotConnected,
+            StreamWriteError::Stopped(var_int) => Self::PeerDisconnected(var_int.into_inner()),
+            StreamWriteError::QuicProto => Self::TransportError,
+            StreamWriteError::Closed => Self::NotConnected,
+        }
+    }
+}
+
+impl From<wtransport::error::StreamOpeningError> for TransmissionError {
+    fn from(value: wtransport::error::StreamOpeningError) -> Self {
+        match value {
+            wtransport::error::StreamOpeningError::NotConnected => Self::NotConnected,
+            wtransport::error::StreamOpeningError::Refused => Self::Refused,
+        }
+    }
+}
+

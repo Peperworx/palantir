@@ -3,9 +3,9 @@
 //! This can be used to implement auth, or simply ensure that clients use the same messages.
 
 use serde::{Deserialize, Serialize};
-use wtransport::endpoint::{IncomingSession, SessionRequest};
 
-use crate::message::Side;
+
+use crate::{error::HandshakeError, frame::Framed, message::{PalantirMessage, Side}};
 
 
 
@@ -24,11 +24,13 @@ pub trait Validator: Send + Sync + 'static {
     /// This is the packet type used during this window.
     type Packet: Serialize + for<'a> Deserialize<'a>;
     
-    /// # [`Validate::create_new_state`]
+    /// # [`Validator::create_new_state`]
     /// Creates a new instance of [`Validator::State`] that will be used
     /// during communications with the given peer.
     async fn create_new_state(&self, mode: Side) -> Self::State;
 
-    
+    /// # [`Validator::handshake`]
+    /// Runs the validator's handshake
+    async fn handshake(&self, framed: &mut Framed<PalantirMessage<Self>>, state: &mut Self::State) -> Result<(), Vec<HandshakeError>> where Self: std::marker::Sized;
 }
 
