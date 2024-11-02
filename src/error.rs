@@ -7,12 +7,12 @@ use wtransport::error::StreamWriteError;
 
 #[derive(Debug, Error)]
 pub enum PalantirError {
-    
     #[error("{0}")]
     ConnectingError(#[from] ConnectingError),
     #[error("{0}")]
+    ConnectionError(#[from] ConnectionError),
+    #[error("{0}")]
     HandshakeError(#[from] HandshakeError),
-    
 }
 
 /// # [`HandshakeError`]

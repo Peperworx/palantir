@@ -31,6 +31,6 @@ pub trait Validator: Send + Sync + 'static {
 
     /// # [`Validator::handshake`]
     /// Runs the validator's handshake
-    async fn handshake(&self, framed: &mut Framed<PalantirMessage<Self>>, state: &mut Self::State) -> Result<(), Vec<HandshakeError>> where Self: std::marker::Sized;
+    async fn handshake(&self, framed: &mut Framed<PalantirMessage<Self>>, state: &mut Self::State, name: &str) -> Result<(), Vec<HandshakeError>> where Self: std::marker::Sized;
 }
 
