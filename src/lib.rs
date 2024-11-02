@@ -5,11 +5,15 @@
 
 pub mod error;
 pub mod validation;
+mod frame;
+mod message;
 
 use std::{collections::HashMap, marker::PhantomData, net::IpAddr, sync::Arc};
 
 use error::PalantirError;
 use fluxion::{Delegate, Fluxion, Identifier, IndeterminateMessage, MessageSender};
+use frame::Framed;
+use message::PalantirMessage;
 use tokio::{sync::Mutex, task::JoinSet};
 use validation::Validator;
 use wtransport::{Connection, Endpoint, Identity, ServerConfig};
@@ -35,18 +39,21 @@ pub struct Palantir<V> {
     /// Array of callbacks for when new peers connnect to us.
     /// A tokio mutex is used, as they will need to be held past await points.
     new_peer_callbacks: Mutex<Vec<Box<dyn Fn(String) + Send + Sync + 'static>>>,
+    /// This peer's name
+    name: String,
     _phantom: PhantomData<V>
 }
 
 impl<V> Palantir<V> {
     /// # [`Palantir::new`]
     /// Creates a new palantir instance that will listen on the given port when run.
-    pub fn new(port: u16) -> Self {
+    pub fn new(port: u16, name: String) -> Self {
         Self {
             listen_port: port,
             peers: Default::default(),
             join_set: Default::default(),
             new_peer_callbacks: Default::default(),
+            name,
             _phantom: PhantomData
         }
     }
@@ -132,7 +139,97 @@ impl<V: Validator> Palantir<V> {
     /// # [`Palantir::handle_connection`]
     /// Handles a new connection from a peer, specifically accepting new channels.
     async fn handle_connection(self: Arc<Self>, connection: Connection, system: Fluxion<Arc<Self>>, validator: Arc<V>) {
-        todo!()
+        
+        // Accept bidirectional channels in a loop
+        loop {
+
+            // Accept the next bidirectional channel.
+            let Ok((send, recv)) = connection.accept_bi().await else {
+                // Drop the client altogether if there is a connection error
+                connection.close(0u32.into(), b"connection error");
+                return;
+            };
+
+            // Wrap the bidirectional channel in packet framing
+            let framed = Framed::<PalantirMessage<V::Validation>>::new(send, recv);
+
+            // Spawn a new task to handle the channel.
+            self.join_set.lock().expect("join set lock shouldn't be poisoned")
+                .spawn(self.clone().handle_channel(framed, system.clone(), validator.clone()));
+
+        }
+    }
+
+    /// # [`Palantir::handle_channel`]
+    /// Handles a new channel from a peer, including the handshake
+    async fn handle_channel(self: Arc<Self>, mut framed: Framed<PalantirMessage<V::Validation>>, system: Fluxion<Arc<Self>>, validator: Arc<V>) {
+
+        // Receive the next packet from the client
+        let Ok(next) = framed.recv().await else {
+            // Send the client a message saying there was an invalid packet,
+            // ignoring the returned result just in case it was a connection error.
+            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            return;
+        };
+
+        // Unpack the client's handshake, or inform of an invalid packet.
+        let PalantirMessage::ClientHandshake { magic, name, validation } = next else {
+            // Ignore the result, as we are exiting anyways.
+            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            return;
+        };
+
+        // If the magic value is wrong, return
+        if magic != ['P', 'A', 'L', 'A', 'N', 'T', 'I', 'R'] {
+            // Ignore the result, as we are exiting anyways.
+            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            return;
+        }
+
+        // Run the validation
+        if !validator.validate_validation(&validation, &name).await {
+            // Ignore the result, as we are exiting anyways.
+            let _ = framed.send(&PalantirMessage::ValidationFailed).await;
+            return;
+        }
+
+        // Send the server's response
+        framed.send(&PalantirMessage::ServerResponse {
+            magic: ['P', 'A', 'L', 'A', 'N', 'T', 'I', 'R'],
+            name: self.name.clone(),
+        });
+
+        // Wait for the client's response
+        let Ok(next) = framed.recv().await else {
+            let _ = framed.send(&PalantirMessage::InvalidPacket).await;
+            return;
+        };
+
+        // If it's not a client response, then return and do nothing
+        let PalantirMessage::ClientResponse = next else {
+            return;
+        };
+
+        // Now the client is validated
+
+        // Split off the sender and receiver.
+        let (send, recv) = (framed.0, framed.1);
+
+        // Wrap the sender in a mutex, as it will solely
+        // be used to send responses, which whill be sent from other threads.
+        // It is likely more efficient to just use an arc and mutex than
+        // to use a channel and select here.
+        let send = Arc::new(Mutex::new(send));
+
+        loop {
+            
+            // Receive the next packet
+            let Ok(next) = recv.recv().await else {
+
+            };
+
+            todo!()
+        }
     }
 }
 

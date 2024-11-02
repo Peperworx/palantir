@@ -28,8 +28,8 @@ pub trait Validator: Send + Sync + 'static {
 
     /// # [`Validator::validate_validation`]
     /// This method should return `true` if a client sending a given
-    /// validation should be granted access, and false otherwise.
-    fn validate_validation(&self, validation: &Self::Validation) -> impl std::future::Future<Output = bool> + Send;
+    /// validation and claiming a given name should be granted access, and false otherwise.
+    fn validate_validation(&self, validation: &Self::Validation, name: &str) -> impl std::future::Future<Output = bool> + Send;
 }
 
 
@@ -50,8 +50,8 @@ impl<
         self.1.validate_session_request(request).await
     }
 
-    async fn validate_validation(&self, validation: &Self::Validation) -> bool {
-        self.0.validate_validation(validation).await &
-        self.1.validate_validation(validation).await
+    async fn validate_validation(&self, validation: &Self::Validation, name: &str) -> bool {
+        self.0.validate_validation(validation, name).await &
+        self.1.validate_validation(validation, name).await
     }
 }
