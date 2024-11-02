@@ -34,8 +34,8 @@ async fn main() {
     
 
     // Begin running the delegate's main loop.
-    let jh = tokio::spawn(delegate.run(system.clone()));
+    delegate.run(system.clone()).await;
 
     // Wait for the delegate to exit
-    jh.await;
+    delegate.join().await;
 }

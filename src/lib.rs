@@ -2,21 +2,34 @@
 
 #[warn(clippy::pedantic)]
 #[allow(clippy::module_name_repetitions)]
-
 pub mod error;
-pub mod validation;
 mod frame;
 mod message;
+pub mod validation;
 
-use std::{collections::HashMap, future::Future, marker::PhantomData, net::IpAddr, pin::Pin, sync::Arc};
+use std::{
+    cell::OnceCell,
+    collections::HashMap,
+    future::Future,
+    marker::PhantomData,
+    net::IpAddr,
+    pin::Pin,
+    sync::{Arc, OnceLock},
+};
 
 use error::{FramedError, HandshakeError, PalantirError, TransmissionError};
 use fluxion::{Delegate, Fluxion, Identifier, IndeterminateMessage, MessageSender};
 use frame::Framed;
-use message::{handshake, PalantirMessage, Side};
-use tokio::{sync::Mutex, task::JoinSet};
+use message::{handshake, PalantirMessage, RequestID, Side};
+use tokio::{
+    sync::{oneshot, Mutex},
+    task::JoinSet,
+};
 use validation::Validator;
-use wtransport::{endpoint::ConnectOptions, tls::client::NoServerVerification, ClientConfig, Connection, Endpoint, Identity, ServerConfig};
+use wtransport::{
+    endpoint::ConnectOptions, tls::client::NoServerVerification, ClientConfig, Connection,
+    Endpoint, Identity, ServerConfig,
+};
 
 /// # [`CallbackFuture`]
 /// Pinned future that is returned by callbacks.
@@ -25,7 +38,7 @@ type CallbackFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 /// # [`AsyncCallback`]
 /// Represents a boxed callback that returns a [`CallbackFuture`]
 /// and accepts a reference to a generic argument.
-type AsyncCallback<V> = Box<dyn Fn(&V) -> CallbackFuture<'_> + Send + Sync + 'static> ;
+type AsyncCallback<V> = Box<dyn Fn(&V) -> CallbackFuture<'_> + Send + Sync + 'static>;
 
 /// # [`Palantir`]
 /// Palantir enables rudimentary networking for [`fluxion`] via [`wtransport`].
@@ -38,7 +51,7 @@ pub struct Palantir<V> {
     /// This palantir instance "owns" two types of tasks:
     /// 1. Those spawned by the main loop to handle incoming connections
     /// 2. Those spawned by the previous tasks that handle incoming channels.
-    /// 
+    ///
     /// We do *not* want these tasks to be orphaned when the Palantir instance
     /// is dropped, so a join set is used to ensure that all tasks are aborted
     /// when this instance is dropped. A standard library mutex is used,
@@ -46,7 +59,7 @@ pub struct Palantir<V> {
     /// from the [`Drop`] trait,which is not asynchronous.
     /// This means that a mutex guard for this join set
     /// *MUST NOT* be held across an await point.
-    /// 
+    ///
     /// # Notes on Error Handling
     /// The way errors are handled in palantir is a little complex,
     /// as it is possible for multiple errors to cause another.
@@ -55,8 +68,8 @@ pub struct Palantir<V> {
     /// but at the moment this solution works.
     join_set: std::sync::Mutex<JoinSet<Result<(), Vec<PalantirError>>>>,
     /// A mapping of peer IDs to [`Connection`] objects.
-    /// 
-    /// The [`wtransport::Connection`] objects stored by this 
+    ///
+    /// The [`wtransport::Connection`] objects stored by this
     /// field do not require mutable access for operations.
     /// As such, they are stored in an [`Arc`] that can be cloned
     /// out to threads that require access. This can both greatly
@@ -68,7 +81,7 @@ pub struct Palantir<V> {
     /// should first clone the [`Arc`], and then drop the guard.
     peers: std::sync::RwLock<HashMap<String, Arc<Connection>>>,
     /// Array of callbacks for when new peers connnect to us.
-    /// 
+    ///
     /// Almost all accesses to this method will be mutable, so
     /// a mutex is used. As this will need to be held across
     /// await points when the callbacks are called, a tokio
@@ -79,6 +92,9 @@ pub struct Palantir<V> {
     /// immutable access to itself, and as such doesn't need any
     /// synchronization primitives.
     validator: V,
+    /// The fluxion instance that this palantir instance belongs to.
+    /// This is populated by the initialize method
+    fluxion: OnceLock<Fluxion<Self>>,
 }
 
 impl<V> Palantir<V> {
@@ -92,71 +108,153 @@ impl<V> Palantir<V> {
             new_peer_callbacks: Default::default(),
             name,
             validator,
+            fluxion: OnceLock::new(),
         }
     }
 
     /// # [`Palantir::on_new_connection`]
     /// Registers a new callback for a new connection from a peer.
     /// Provides the peer's id to the callback
-    pub async fn on_new_connection<F: Fn(&str) -> CallbackFuture + Send + Sync + 'static>(&self, callback: F) {
+    pub async fn on_new_connection<F: Fn(&str) -> CallbackFuture + Send + Sync + 'static>(
+        &self,
+        callback: F,
+    ) {
         // Lock the callback mutex
         let mut callbacks = self.new_peer_callbacks.lock().await;
 
         // Add the callback
         callbacks.push(Box::new(callback));
     }
-
-    
 }
 
 impl<V: Validator> Palantir<V> {
-    
+    /// # [`Palantir::run`]
+    /// Runs and initializes the palantir instance on the given system.
+    pub async fn run(self: Arc<Self>, fluxion: Fluxion<Self>) -> Result<(), PalantirError> {
+        // Set the fluxion instance
+        self.fluxion
+            .set(fluxion)
+            .map_err(|_| PalantirError::AlreadyRunning)?;
+
+        Ok(())
+    }
 
     /// # [`Palantir::handle_connection`]
     /// This future is spawned as a new task whenever a new connection
     /// is created.
-    pub async fn handle_connection(self: Arc<Self>, connection: Arc<Connection>, mut state: V::State, side: Side) -> Result<(), Vec<PalantirError>> {
-
+    pub async fn handle_connection(
+        self: Arc<Self>,
+        connection: Arc<Connection>,
+        mut state: V::State,
+        side: Side,
+    ) -> Result<(), Vec<PalantirError>> {
         // Handle the handshake on this connection, returning the name of the given peer
-        let name = handshake(
-            &self,
-            &connection,
-            &mut state,
-            side
-        ).await.map_err(|e| e.into_iter().map(PalantirError::from).collect::<Vec<_>>())?;
+        let name = handshake(&self, &connection, &mut state, side)
+            .await
+            .map_err(|e| e.into_iter().map(PalantirError::from).collect::<Vec<_>>())?;
 
+        // The handshake already checked if the name exists, so we can just insert it into the map
+        self.peers
+            .write()
+            .expect("peer lock not poisoned")
+            .insert(name.clone(), connection.clone());
 
         // Handle the callbacks for a new connection
-        let callbacks = self.new_peer_callbacks.lock().await ;
-        
+        let callbacks = self.new_peer_callbacks.lock().await;
+
         for cb in callbacks.iter() {
             cb(&name).await;
         }
 
-        
-
-       
         // In a loop, accept new channels
         loop {
-
             // Accept the next channel
-            let (send, recv) = connection.accept_bi().await
+            let (send, recv) = connection
+                .accept_bi()
+                .await
                 .map_err(|e| vec![PalantirError::ConnectionError(e.into())])?;
 
             // Wrap in packet framing
-            let mut framed = Framed::<PalantirMessage<V>>::new(send, recv);
+            let framed = Framed::<PalantirMessage<V>>::new(send, recv);
 
-            
+            // Spawn task to handle the channel
+            self.join_set
+                .lock()
+                .expect("join set mutex shouldn't be poisoned")
+                .spawn(self.clone().handle_channel(framed, name.clone(), side));
+        }
+    }
 
+    /// # [`Palantir::handle_channel`]
+    /// Handles a new channel initialized by a client.
+    async fn handle_channel(
+        self: Arc<Self>,
+        mut framed: Framed<PalantirMessage<V>>,
+        name: String,
+        side: Side,
+    ) -> Result<(), Vec<PalantirError>> {
+        
+
+        // We should expect a packet requesting to talk to a specific actor.
+        let msg = match framed.recv().await {
+            Err(e @ FramedError::TransmissionError(_)) => {
+                // Because this is the only error in the chain, we can just return a new vec.
+                return Err(vec![e.into()]);
+            },
+            Err(e @ FramedError::InvalidEncoding { packet: _ }) => {
+                // Create a vec with the error
+                let mut errs: Vec<PalantirError> = vec![e.into()];
+    
+                // Tell the peer it sent an invalid packet
+                let res = framed.send(&PalantirMessage::MalformedData).await;
+    
+                // If there was another error, log it
+                if let Err(e) = res {
+                    errs.push(e.into());
+                }
+    
+                return Err(errs);
+            },
+            Err(_) => unreachable!("received packets can't exceed our default send size limit"),
+            Ok(v) => v,
         };
+        
+        let PalantirMessage::Open(id) = msg else {
+            // Create the error containing the unexpected packet errror
+            let mut errs = vec![HandshakeError::UnexpectedPacket.into()];
+
+            // Tell the peer it sent an unexpected packet
+            let res = framed.send(&PalantirMessage::UnexpectedPacket).await;
+
+            // If there was another error, log it
+            if let Err(e) = res {
+                errs.push(e.into());
+            }
+
+            return Err(errs);
+        };
+
+        // Get the fluxion system
+        let fluxion = self.fluxion.get().ok_or_else(|| vec![PalantirError::NotInitialized])?;
+
+        // Get a reference to that actor
+        let actor = fluxion.get(match id {
+            message::ActorID::ID(id) => Identifier::Local(id),
+            message::ActorID::Name(name) => Identifier::LocalNamed(&name),
+        }).await;
+
+        todo!()
     }
 }
 
-
-
 impl<V: Send + Sync + 'static> Delegate for Palantir<V> {
-    async fn get_actor<A: fluxion::Handler<M>, M: IndeterminateMessage>(&self, id: Identifier<'_>) -> Option<Arc<dyn MessageSender<M>>> 
-        where M::Result: serde::Serialize + for<'a> serde::Deserialize<'a> {
+    async fn get_actor<A: fluxion::Handler<M>, M: IndeterminateMessage>(
+        &self,
+        id: Identifier<'_>,
+    ) -> Option<Arc<dyn MessageSender<M>>>
+    where
+        M::Result: serde::Serialize + for<'a> serde::Deserialize<'a>,
+    {
         todo!()
     }
 }

@@ -22,7 +22,7 @@ pub trait Validator: Send + Sync + 'static {
     /// The [`Validator`] is provided a window
     /// during the handshake to perform its own operations.
     /// This is the packet type used during this window.
-    type Packet: Serialize + for<'a> Deserialize<'a>;
+    type Packet: Serialize + for<'a> Deserialize<'a> + Send + Sync + 'static;
     
     /// # [`Validator::create_new_state`]
     /// Creates a new instance of [`Validator::State`] that will be used

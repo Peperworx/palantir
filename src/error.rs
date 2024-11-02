@@ -13,6 +13,12 @@ pub enum PalantirError {
     ConnectionError(#[from] ConnectionError),
     #[error("{0}")]
     HandshakeError(#[from] HandshakeError),
+    #[error("{0}")]
+    FramedError(#[from] FramedError),
+    #[error("palantir is not yet initialized")]
+    NotInitialized,
+    #[error("palantir is already running")]
+    AlreadyRunning,
 }
 
 /// # [`HandshakeError`]

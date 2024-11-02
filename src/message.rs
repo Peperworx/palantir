@@ -1,7 +1,9 @@
 //! # Message
 //! The data packet type that palantir sends over the wire, serialized using [`postcard`].
 
+use fluxion::Fluxion;
 use serde::{Deserialize, Serialize};
+use slotmap::new_key_type;
 use wtransport::Connection;
 
 use crate::{
@@ -127,7 +129,7 @@ pub(crate) async fn client_handshake<V: Validator>(
 
 
     // Check if the name exists. If it does, error.
-    if instance.peers.read().expect("peers map not poisoned").contains_key(&name) {
+    if instance.peers.read().expect("peers map not poisoned").contains_key(&name) || name == instance.name {
         let mut errs = vec![HandshakeError::NameTaken];
 
         // Tell the peer its name is taken
@@ -169,13 +171,8 @@ pub(crate) async fn server_handshake<V: Validator>(
     state: &mut V::State,
 ) -> Result<String, Vec<HandshakeError>> {
     // The client always initializes the handshake.
-    // So lets open a channel just for the handshale
-    let (send, recv) = connection
-        .open_bi()
-        .await
-        .map_err(|v| vec![HandshakeError::ConnectionError(v.into())])?
-        .await
-        .map_err(|v| vec![HandshakeError::TransmissionError(v.into())])?;
+    // So lets receive the next bidi channel
+    let (send, recv) = connection.accept_bi().await.map_err(|v| vec![HandshakeError::ConnectionError(v.into())])?;
 
     // And wrap the channel in packet framing
     let mut framed = Framed::new(send, recv);
@@ -244,7 +241,7 @@ pub(crate) async fn server_handshake<V: Validator>(
 
 
     // Check if the name exists. If it does, error.
-    if instance.peers.read().expect("peers map not poisoned").contains_key(&name) {
+    if instance.peers.read().expect("peers map not poisoned").contains_key(&name) || name == instance.name {
         let mut errs = vec![HandshakeError::NameTaken];
 
         // Tell the peer its name is taken
@@ -328,7 +325,7 @@ pub(crate) async fn server_handshake<V: Validator>(
 /// Indicates which end of a connection the given method is executing on:
 /// either the initiator or the acceptor.
 /// (Client or server, but this distinction is important)
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Side {
     Initiator,
     Acceptor,
@@ -343,6 +340,10 @@ pub enum ActorID {
     ID(u64) = 0,
     Name(String) = 1,
 }
+
+/// # [`RequestID`]
+/// The request ID type used to index responders in a slot map.
+new_key_type! { pub struct RequestID; }
 
 /// # [`PalantirMessage`]
 /// The message structure that palantir sends over the wire, serialized using [`postcard`]
@@ -367,23 +368,28 @@ pub enum PalantirMessage<V: Validator> {
     /// Send by the client to the server to indicate that the handshake was completed.
     HandshakeCompleted = 3,
 
+    /// # [`PalantirMessage::Open`]
+    /// Indicates that a client wants to communicate with the given actor.
+    /// This should be the first message on a channel.
+    Open(ActorID),
+
     /// # [`PalantirMessage::Request`]
     /// Indicates a request with the given ID and arbitrary data.
     Request {
         /// The request's id.
-        id: u32,
+        id: RequestID,
         /// The request's data
         data: Vec<u8>,
-    } = 4,
+    } = 5,
 
     /// # [`PalantirMessage::Response`]
     /// Contains the response data to a request with the given ID.
     Response {
         /// The ID of the request this response is to
-        id: u32,
+        id: RequestID,
         /// The response data
         data: Vec<u8>,
-    } = 5,
+    } = 6,
 
     /// # [`PalantirMessage::NameTaken`]
     /// Sent by either peer to the other during the handshake

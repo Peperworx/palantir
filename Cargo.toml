@@ -13,6 +13,7 @@ readme = "README.md"
 fluxion = { version = "0.10.1", features = ["foreign", "serde"] }
 postcard = { version = "1.0.10", features = ["alloc"] }
 serde = "1.0.214"
+slotmap = { version = "1.0.7", features = ["serde"] }
 thiserror = "1.0.66"
 tokio = { version = "1.41.0", features = ["full"] }
 wtransport = { version = "0.4.0", features = ["dangerous-configuration"] }
