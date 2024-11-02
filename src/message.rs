@@ -3,6 +3,18 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::validation::Validator;
+
+
+/// # [`Side`]
+/// Indicates which end of a connection the given method is executing on:
+/// either the initiator or the acceptor.
+/// (Client or server, but this distinction is important)
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub enum Side {
+    Initiator,
+    Acceptor
+}
 
 /// # [`ActorID`]
 /// A way to represent an actor over the network.
@@ -18,63 +30,71 @@ pub enum ActorID {
 /// The message structure that palantir sends over the wire, serialized using [`postcard`]
 #[derive(Serialize, Deserialize, Debug)]
 #[repr(u8)]
-pub enum PalantirMessage<V> {
+pub enum PalantirMessage<V: Validator> {
 
-
-    /// # [`PalantirMessage::ClientHandshake`]
-    /// The handshake sent from a client to the server when the connection is opened.
-    /// Indicates that the connection is a handshake connection and that it should be used for
-    /// validation only, then closed.
-    ClientHandshake {
-        /// The magic string. Should always be "PALANTIR"
-        magic: [char; 8],
-        /// The name of the connecting peer
+    /// # [`PalantirMessage::ClientInitiation`]
+    /// Sent by the client to the server when it initiates a connection.
+    /// Contains the client's name, and a magic string that should always be "PALANTIR"
+    ClientInitiation {
+        magic: String,
         name: String,
-        /// The arbitrary validation sent by the client
-        validation: V,
-    },
+    } = 0,
     /// # [`PalantirMessage::ServerResponse`]
-    /// The handshake sent from the server to a client after the client handshake.
+    /// Send by the server to the client in response to a [`PalantirMessage::ClientInitiation`].
+    /// Contains the server's name and the magic string ("PALANTIR").
     ServerResponse {
-        /// The magic string. Should always be "PALANTIR"
-        magic: [char; 8],
-        /// The name of the server
+        magic: String,
         name: String,
-    },
-    /// # [`PalantirMessage::ClientResponse`]
-    /// Sent by the client to acknowledge the handshake's completion
-    ClientResponse,
+    } = 1,
 
-
-    /// # [`PalantirMessage::Connect`]
-    /// Indicates to the client that it wants to send messages to the given actor.
-    Connect(ActorID),
-    /// # [`PalantirMessage::ActorDoesntExist`]
-    /// Sent when the actor requested by the client doesn't exist.
-    ActorDoesntExist,
-    /// # [`PalantirMessage::Request`]
-    /// A request containing arbitrary data from a client
-    Request {
-        /// The request id
-        id: u64,
-        /// The request data
-        data: Vec<u8>,
-    },
-    /// # [`PalantirMessage::Response`]
-    /// A response from the server, containing arbitrary data
-    Response {
-        /// The ID of the request we are responding to.
-        id: u64,
-        /// The response data
-        data: Vec<u8>,
-    },
+    /// # [`PalantirMessage::ValidatorPacket`]
+    /// Arbitrary packet exchanged by the validator after [`PalantirMessage::ServerResponse`]
+    /// but before [`PalantirMessage::HandshakeCompleted`].
+    ValidatorPacket(V::Packet) = 2,
     
+    /// # [`PalantirMessage::HandshakeCompleted`]
+    /// Send by the client to the server to indicate that the handshake was completed.
+    HandshakeCompleted = 3,
 
-    /// # [`PalantirMessage::MalformedData`]
-    /// Sent by a peer when it receives invalid data
-    MalformedData,
+    /// # [`PalantirMessage::Request`]
+    /// Indicates a request with the given ID and arbitrary data.
+    Request {
+        /// The request's id.
+        id: u32,
+        /// The request's data
+        data: Vec<u8>,
+    } = 4,
+
+    /// # [`PalantirMessage::Response`]
+    /// Contains the response data to a request with the given ID.
+    Response {
+        /// The ID of the request this response is to
+        id: u32,
+        /// The response data
+        data: Vec<u8>
+    } = 5,
+
+    /// # [`PalantirMessage::NameTaken`]
+    /// Sent by either peer to the other during the handshake
+    /// to indicate that the given name was taken.
+    /// The connection is then terminated.
+    NameTaken,
+
+    /// # [`PalantirMessage::InvalidMagic`]
+    /// Sent by either peer to the other during the handshake
+    /// to indicate that the given magic value was invalid.
+    /// The connection is then terminated.
+    InvalidMagic,
+
     /// # [`PalantirMessage::UnexpectedPacket`]
-    /// Sent by a peer when it receives an unexpected packet
+    /// Sent by either peer to the other to indicate that
+    /// an unexpected packet was received.
+    /// The connection is then terminated.
     UnexpectedPacket,
 
+    /// # [`PalantirMessage::MalformedData`]
+    /// Sent by either peer to the other to indicate
+    /// that the data sent was malformed and unable
+    /// to be deserialized.
+    MalformedData,
 }
