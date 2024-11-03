@@ -6,15 +6,34 @@ use std::{collections::HashMap, sync::Arc};
 
 use channel::Channel;
 use error::{AddPeerError, OpenChannelError};
+use message::{ActorID, PeerMessage};
 use tokio::{sync::mpsc, task::JoinSet};
-use wtransport::Connection;
+use wtransport::{proto::frame::FrameKind, Connection};
+
+use crate::frame::Framed;
 
 pub mod error;
 pub mod channel;
 mod message;
 
 
-pub struct Peer<V> {
+
+/// # [`RequestHandler`]
+/// A request handler is a type that is attached to a peer to handle incoming requests from other peers.
+pub trait RequestHandler {
+    /// # [`RequestHandler::handle_request`]
+    /// Called with the request body data and the name of the sender
+    /// whenever a new request is received.
+    /// 
+    /// # Errors
+    /// Returns a user-defined error code whenever an error occurs.
+    async fn handle_request(&self, data: Vec<u8>, peer: &str) -> Result<Vec<u8>, u32>;
+}
+
+
+/// # [`Peer`]
+/// A peer serves primarily to manage connections with other peers and provide communication channels to them upon request.
+pub struct Peer<V, H> {
     /// This is the UDP port this peer will listen on.
     listen_port: u16,
     /// This is the name of this peer
@@ -47,19 +66,22 @@ pub struct Peer<V> {
     /// immutable access to itself, and as such doesn't need any
     /// synchronization primitives.
     validator: V,
+    /// The request handler is stored similarly to the validator
+    request_handler: H,
 }
 
-impl<V> Peer<V> {
+impl<V, H> Peer<V, H> {
 
     /// # [`Peer::new`]
     /// Creates a new peer that is configured to listen on the given port
-    pub fn new(listen_port: u16, name: String, validator: V) -> Self {
+    pub fn new(listen_port: u16, name: String, validator: V, request_handler: H) -> Self {
         Self {
             listen_port,
             name,
             join_set: Default::default(),
             peers: Default::default(),
-            validator
+            validator,
+            request_handler
         }
     }
 
@@ -71,9 +93,35 @@ impl<V> Peer<V> {
     }
 
     /// # [`Peer::open_channel`]
-    /// Opens a channel to the given peer with the given ID.
-    pub async fn open_channel(&self, peer: &str) -> Result<Channel, OpenChannelError> {
-        todo!()
+    /// Opens a channel to the given peer with the given ID, requesting the given actor ID
+    /// as the channel's target.
+    /// 
+    /// # Errors
+    /// Returns an error if the peer doesn't exist, or if there was a problem establishing the channel.
+    /// 
+    /// # Panics
+    /// This function may panic if the peers mutex is poisoned, which should almost never happen.
+    /// If it does, it means that the only current option is to crash.
+    pub async fn open_channel(&self, peer: &str, id: ActorID) -> Result<Channel, OpenChannelError> {
+
+        // Try to retrieve the connection
+        let conn = self.peers.read().expect("peer lock shouldn't be poisoned")
+            .get(peer).ok_or(OpenChannelError::PeerDoesntExist)?.clone();
+
+        // Open a new bidi channel
+        let (send, recv) = conn.open_bi().await
+            .map_err(|e| OpenChannelError::ConnectionError(e.into()))?.await
+            .map_err(|e| OpenChannelError::TransmissionError(e.into()))?;
+
+        // Wrap in a framed packet sender
+        let mut framed = Framed::<PeerMessage>::new(send, recv);
+
+        // Send our intent to use this as a request/response channel
+        framed.send(&PeerMessage::Initialize(message::ChannelPurpose::RequestResponse(id))).await?;
+
+
+        // Wrap in a channel
+        Ok(Channel::new(framed))
     }
 
     /// # [`Peer:run`]
