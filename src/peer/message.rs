@@ -40,6 +40,10 @@ pub enum PeerMessage {
         name: String,
     } = 1,
 
+    /// # [`PeerMessage::HandshakeResponse`]
+    /// The response to the handshake sent by each peer
+    HandshakeResponse(HandshakeResponse) = 2,
+
     /// # [`PeerMessage::Request`]
     /// A request with arbitrary data that is sent over channels whose purpose is request/response.
     Request {
@@ -47,7 +51,7 @@ pub enum PeerMessage {
         request_id: RequestID,
         /// The request data
         body: Vec<u8>,
-    } = 2,
+    } = 3,
 
     /// # [`PeerMessage::Response`]
     /// A response to a [`PeerMessage::Response`].
@@ -56,7 +60,7 @@ pub enum PeerMessage {
         request_id: RequestID,
         /// The response data
         body: Vec<u8>,
-    } = 3,
+    } = 4,
 }
 
 
@@ -72,4 +76,17 @@ pub enum ChannelPurpose {
     /// Indicates that the channel will be used as a request/response channel
     /// connected to a given actor id.
     RequestResponse(ActorID) = 1,
+}
+
+/// # [`HandshakeResponse`]
+/// The different handshake outcomes that a peer could send to the other
+#[derive(Serialize, Deserialize)]
+#[repr(u8)]
+pub enum HandshakeResponse {
+    /// # [`HandshakeResponse::Ok`]
+    /// The handshake finished successfully
+    Ok = 0,
+    /// # [`HandshakeResponse::NameTaken`]
+    /// The handshake failed, as the peer's name was already taken
+    NameTaken = 1,
 }

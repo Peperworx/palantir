@@ -1,6 +1,10 @@
+use std::io;
+
 use thiserror::Error;
 
 use crate::error::{ConnectionError, FramedError, TransmissionError};
+
+use super::message::HandshakeResponse;
 
 
 
@@ -23,3 +27,35 @@ pub enum OpenChannelError {
     FramedError(#[from] FramedError)
 }
 
+#[derive(Error, Debug)]
+pub enum RunPeerError {
+    #[error("experienced error while creating endpoint")]
+    EndpointCreationError {
+        #[source]
+        source: io::Error,
+    }
+}
+
+
+/// # [`HandshakeError`]
+/// Error that occurs during a handshake with a peer
+#[derive(Debug, Error)]
+pub enum HandshakeError {
+    
+    /// There was a framed error during the handshake
+    #[error("{0}")]
+    FramedError(#[from] FramedError),
+    /// The peer sent an unexpected packet
+    #[error("unexpected packet recieved from peer")]
+    UnexpectedPacket,
+    /// The peer tried to use a name that already exists
+    #[error("peer sent a name that is already in use")]
+    NameTaken,
+    /// The peer responded with an unsatisfactory response
+    #[error("unsatisfactory response from peer")]
+    UnsatisfactoryResponse(HandshakeResponse),
+    #[error("{0}")]
+    TransmissionError(#[from] TransmissionError),
+    #[error("{0}")]
+    ConnectionError(#[from] ConnectionError),
+}

@@ -8,3 +8,4 @@ pub mod peer;
 mod frame;
 pub mod error;
 mod timeout;
+pub mod validation;

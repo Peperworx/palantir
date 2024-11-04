@@ -7,7 +7,7 @@ use std::{future::Future, sync::Arc, time::Duration};
 
 use crate::{error::FramedError, frame::{RecvFramed, SendFramed}, timeout::TimeoutChannels};
 
-use super::{message::{PeerMessage, RequestID}, Peer};
+use super::message::{PeerMessage, RequestID};
 
 
 
