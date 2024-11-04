@@ -16,9 +16,12 @@ pub enum ActorID {
     Name(String) = 1,
 }
 
-/// # [`RequestID`]
-/// The request ID type used to index responders in a slot map.
-new_key_type! { pub struct RequestID; }
+
+new_key_type! {
+    /// # [`RequestID`]
+    /// The request ID type used to index responders in a slot map.
+    pub struct RequestID;
+}
 
 /// # [`PeerMessage`]
 /// The message type sent between peers.
