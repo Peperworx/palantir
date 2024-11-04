@@ -121,7 +121,17 @@ impl<V, H> Peer<V, H> {
 
 
         // Wrap in a channel
-        Ok(Channel::new(framed))
+        let channel = Channel::new(framed.0);
+
+        // Create the future for the channel's main loop
+        let channel_future = channel.create_run_future(framed.1);
+
+        // Spawn the channel's main loop on the join set
+        self.join_set.lock().expect("join set lock shouldn't be poisoned")
+            .spawn(channel_future);
+
+        // Return the channel
+        Ok(channel)
     }
 
     /// # [`Peer:run`]

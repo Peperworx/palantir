@@ -2,38 +2,34 @@
 //! Channels provide a simple interface to request/response semantics implemented
 //! on top of a WebTransport channel.
 
-use std::time::Duration;
+use std::{future::Future, sync::Arc, time::Duration};
 
-use tokio::sync::Mutex;
 
-use crate::{error::FramedError, frame::{Framed, RecvFramed, SendFramed}, timeout::TimeoutChannels};
+use crate::{error::FramedError, frame::{RecvFramed, SendFramed}, timeout::TimeoutChannels};
 
 use super::{message::{PeerMessage, RequestID}, Peer};
 
 
 
 
+
 pub struct Channel {
-    /// The framed receiver. Even though this is behind a mutex,
-    /// it will only ever be locked in a single place, in the run method.
-    receiver: Mutex<RecvFramed<PeerMessage>>,
     /// The framed sender. This will be locked by every request.
-    sender: Mutex<SendFramed<PeerMessage>>,
+    sender: SendFramed<PeerMessage>,
     /// This is essentially a slotmap containing oneshot channels that are used to send responses
     /// to a request, but it also implements some more complex timeout logic.
-    responders: TimeoutChannels<RequestID, Vec<u8>>,
+    responders: Arc<TimeoutChannels<RequestID, Vec<u8>>>,
 }
 
 
 impl Channel {
     /// # [`Channel::new`]
-    /// Creates a new channel wrapping a framed sender and receiver
+    /// Creates a new channel wrapping a framed sender
     #[must_use]
-    pub fn new(framed: Framed<PeerMessage>) -> Self {
+    pub fn new(sender: SendFramed<PeerMessage>) -> Self {
         Self {
-            receiver: Mutex::new(framed.1),
-            sender: Mutex::new(framed.0),
-            responders: TimeoutChannels::new(Duration::from_secs(30)),
+            sender,
+            responders: TimeoutChannels::new(Duration::from_secs(30)).into(),
         }
     }
 
@@ -42,10 +38,8 @@ impl Channel {
     /// 
     /// # Errors
     /// Errors if a framed send fails. Will also error with a transport error if the timeout is reached while waiting for a response.
-    pub async fn request(&self, data: Vec<u8>) -> Result<Vec<u8>, FramedError> {
+    pub async fn request(&mut self, data: Vec<u8>) -> Result<Vec<u8>, FramedError> {
 
-        // Lock the sender
-        let mut sender = self.sender.lock().await;
 
         // Create the responder
         let (response, id) = self.responders.add();
@@ -57,21 +51,24 @@ impl Channel {
         };
 
         // Send the request
-        sender.send(&request).await?;
-
-        // Hold the guard while waiting for a response
-        drop(sender);
+        self.sender.send(&request).await?;
 
         // Wait for a response
         response.await.map_err(|_| FramedError::TransmissionError(crate::error::TransmissionError::TransportError))
     }
 
+    /// # [`Channel::create_run_future`]
+    /// Creates the run future for this channel from self and the framed receiver,
+    /// returning it. This eliminates the need for every member of channel to be allocated
+    /// in an Arc, and also eliminates some of the need for interior mutability and locks.
+    pub(crate) fn create_run_future(&self, recv: RecvFramed<PeerMessage>) -> impl Future<Output = ()> {
+        Self::run(recv, self.responders.clone())
+    }
+
     /// # [`Channel::run`]
     /// Channels need a running main loop to dispatched recieved data.
     /// This method should be run in a separate task.
-    pub async fn run(&self) {
-        // Lock the reciever mutex
-        let mut recv = self.receiver.lock().await;
+    async fn run(mut recv: RecvFramed<PeerMessage>, responders: Arc<TimeoutChannels<RequestID, Vec<u8>>>) {
 
         // If we get 5 errors in a row, we need to quit
         let mut error_counter = 0;
@@ -97,7 +94,7 @@ impl Channel {
             };
 
             // Retrieve the response sender for the ID
-            let Some(responder) = self.responders.pop(request_id) else {
+            let Some(responder) = responders.pop(request_id) else {
                 // If the responder has timed out, just ignore it
                 continue;
             };
