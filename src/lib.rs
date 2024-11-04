@@ -4,10 +4,13 @@
 #[allow(clippy::module_name_repetitions)]
 
 
+pub mod backend;
+
 mod request;
 mod actor_id;
 use actor_id::ActorID;
-use fluxion::{Delegate, Handler, IndeterminateMessage, LocalRef, MessageSender};
+use backend::Backend;
+use fluxion::{Delegate, Handler, Identifier, IndeterminateMessage, LocalRef, MessageSender};
 use request::Request;
 use serde::{Deserialize, Serialize};
 
@@ -126,4 +129,31 @@ impl<B> Palantir<B> {
             .insert((id, M::ID.to_string()), request_sender);
         
     }
+}
+
+impl<B: Backend> Delegate for Palantir<B> {
+    async fn get_actor<A: Handler<M>, M: IndeterminateMessage>(&self, id: Identifier<'_>) -> Option<Arc<dyn MessageSender<M>>> 
+        where M::Result: serde::Serialize + for<'a> serde::Deserialize<'a> {
+        
+        // We can't route to actors that are on this peer, so we will return [`None`] if the foreign system id is not provided.
+        let (system, id) = match id {
+            Identifier::Foreign(id, system) => Some((system, ActorID::Numeric(id))),
+            Identifier::ForeignNamed(name, system) => Some((system, ActorID::Named(name.to_string()))),
+            _ => None,
+        }?;
+
+        // Retrieve a channel to the actor
+        let channel = self.backend.open_channel::<M>(id, system).await?;
+
+        // Wrap the 
+        todo!()
+    }
+}
+
+/// # [`PalantirSender`]
+/// Implements [`MessageSender`] for communication with [`Palantir`].
+/// This is not exposed to the public API directly, and is only ever
+/// exposed indirectly via a dyn [`MessageSender`].
+struct PalantirSender<M> {
+    /// The channel 
 }
