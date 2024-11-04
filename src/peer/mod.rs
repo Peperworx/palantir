@@ -5,17 +5,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use channel::Channel;
-use error::{AddPeerError, OpenChannelError};
+use error::{AddPeerError, OpenChannelError, RunPeerError};
 use message::{ActorID, PeerMessage};
 use tokio::{sync::mpsc, task::JoinSet};
-use wtransport::{proto::frame::FrameKind, Connection};
+use wtransport::{proto::frame::FrameKind, Connection, Endpoint, Identity, ServerConfig};
 
-use crate::frame::Framed;
+use crate::{frame::Framed, validation::Validator};
 
 pub mod error;
 pub mod channel;
 mod message;
-
+mod handshake;
 
 
 /// # [`RequestHandler`]
@@ -70,7 +70,7 @@ pub struct Peer<V, H> {
     request_handler: H,
 }
 
-impl<V, H> Peer<V, H> {
+impl<V: Validator, H> Peer<V, H> {
 
     /// # [`Peer::new`]
     /// Creates a new peer that is configured to listen on the given port
@@ -135,14 +135,81 @@ impl<V, H> Peer<V, H> {
     }
 
     /// # [`Peer:run`]
-    /// Runs the peer's main loop in a separate task, returning the channel over which new channels are sent.
-    pub async fn run(&self) -> mpsc::Receiver<Channel> {
+    /// Runs the peer's main loop in a separate task.
+    pub async fn run(&self) {
         todo!()
+    }
+
+    /// # [`Peer::run_forever`]
+    /// The peer's main loop, spawned by [`Peer::run`]
+    async fn run_forever(&self) -> Result<(), RunPeerError>{
+
+        // Create the endpoint
+        let endpoint = Endpoint::server(
+            ServerConfig::builder()
+                .with_bind_default(self.listen_port)
+                .with_identity(Identity::self_signed(&["localhost", "127.0.0.1"]).expect("self-signed identity generation should succeed"))
+                .build()
+        ).map_err(|e| RunPeerError::EndpointCreationError { source: e })?;
+        
+        // Accept new sessions in a loop
+        loop {
+
+            // Accept the next incoming session
+            let incoming = endpoint.accept().await;
+
+            // Run the validation, and drop peers that fail
+            let Some(mut state) = self.validator.validate_incoming_session(&incoming).await else {
+                incoming.refuse();
+                continue;
+            };
+
+            // Accept the session
+            let Ok(session) = incoming.await else {
+                // Ignore connection errors. TODO: Logging.
+                continue;
+            };
+
+            // Validate the session request
+            if !self.validator.validate_session_request(&session, &mut state).await {
+                session.forbidden().await;
+                continue;
+            };
+
+            // Accept the connection
+            let Ok(connection) = session.accept().await else {
+                // Ignore connection errors. TODO: Logging.
+                continue;
+            };
+
+            
+
+            // Run a handshake on the connection.
+            // This will also add the connection to the map of peers
+            // if the handshake succeeds.
+            let Ok(name) = handshake::handshake(self, connection, true).await else {
+                // If the handshake fails, ignore. TODO: Logging.
+                continue;
+            };
+
+            
+
+        }
     }
 
     /// # [`Peer:join`]
     /// Joins on all tasks owned by the peer.
     pub async fn join(&self) {
         todo!()
+    }
+}
+
+
+impl<V, H> Drop for Peer<V, H> {
+    fn drop(&mut self) {
+        match self.join_set.lock() {
+            Ok(mut js) => js.abort_all(),
+            Err(e) => e.into_inner().abort_all(),
+        }
     }
 }

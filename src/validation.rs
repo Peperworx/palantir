@@ -3,9 +3,10 @@
 //! This can be used to implement auth, or simply ensure that clients use the same messages.
 
 use serde::{Deserialize, Serialize};
+use wtransport::{endpoint::{IncomingSession, SessionRequest}, Connection};
 
 
-use crate::{error::HandshakeError, frame::Framed, message::{PalantirMessage, Side}};
+use crate::{error::ConnectionError, frame::Framed};
 
 
 
@@ -26,11 +27,32 @@ pub trait Validator: Send + Sync + 'static {
     
     /// # [`Validator::create_new_state`]
     /// Creates a new instance of [`Validator::State`] that will be used
-    /// during communications with the given peer.
-    async fn create_new_state(&self, mode: Side) -> Self::State;
+    /// during the validation of a server from the client side.
+    async fn create_new_state(&self) -> Self::State;
 
-    /// # [`Validator::handshake`]
-    /// Runs the validator's handshake
-    async fn handshake(&self, framed: &mut Framed<PalantirMessage<Self>>, state: &mut Self::State, name: &str) -> Result<(), Vec<HandshakeError>> where Self: std::marker::Sized;
+    /// # [`Validator::validate_incoming_session`]
+    /// Validates the given incoming session. This method should
+    /// return a new [`Self::State`] if the client should be allowed to continue connecting.
+    /// This will be called on the server side.
+    async fn validate_incoming_session(&self, incoming: &IncomingSession) -> Option<Self::State>;
+
+    /// # [`Validator::validate_session_request`]
+    /// Validates the given session request. This should return `true`
+    /// if the connection should be allowed to continue, or `false` if
+    /// the `forbidden` response should be sent.
+    /// This will be called on the server side.
+    async fn validate_session_request(&self, session: &SessionRequest, state: &mut Self::State) -> bool;
+
+    /// # [`Validator::validate_connection`]
+    /// Validates the given connection. This should return `true`
+    /// if operations should continue, or `false` if the connection should be dropped.
+    /// An error will also cause the connection to be dropped.
+    /// This will be called on both the client and server side, and can be used to implement
+    /// things such as handshakes. To determine which end of the connection this validator is on,
+    /// it is recomemnded to store a value in the state when it is created, as two different methods
+    /// are used to create the state on the client and server side.
+    async fn validate_connection(&self, connection: &Connection, state: &mut Self::State) -> Result<bool, ConnectionError>;
+
+
 }
 
