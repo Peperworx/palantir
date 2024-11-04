@@ -142,7 +142,7 @@ impl<V: Validator, H> Peer<V, H> {
 
     /// # [`Peer::run_forever`]
     /// The peer's main loop, spawned by [`Peer::run`]
-    async fn run_forever(&self) -> Result<(), RunPeerError>{
+    async fn run_forever(self: Arc<Self>) -> Result<(), RunPeerError>{
 
         // Create the endpoint
         let endpoint = Endpoint::server(
@@ -187,14 +187,48 @@ impl<V: Validator, H> Peer<V, H> {
             // Run a handshake on the connection.
             // This will also add the connection to the map of peers
             // if the handshake succeeds.
-            let Ok(name) = handshake::handshake(self, connection, true).await else {
+            let Ok(name) = handshake::handshake(self.clone(), connection, true).await else {
                 // If the handshake fails, ignore. TODO: Logging.
                 continue;
             };
 
             
 
+            // Spawn the task
+            self.join_set.lock().expect("join set lock not poisoned")
+                .spawn(self.clone().handle_connection(name));
+
         }
+    }
+
+    /// # [`Peer::handle_connection`]
+    /// Handles the connection for the peer with the given name
+    async fn handle_connection(self: Arc<Self>, name: String) {
+        // Retrieve the connection
+        let connection = self.peers.read().expect("peers mutex shouldn't be poisoned")
+            .get(&name).expect("we just added the peer, so it should be present").clone();
+
+        // Accept new channels in a loop
+        loop {
+
+            // Accept the next channel
+            let Ok(next) = connection.accept_bi().await else {
+                // end the connection if it fails. TODO: Logging.
+                break;
+            };
+
+            // Wrap in a framed channel
+            let mut framed = Framed::<PeerMessage>::new(next.0, next.1);
+
+            // Receive the channel's intent
+            let PeerMessage::Initialize(message::ChannelPurpose::RequestResponse(a)) = framed.recv().await else {
+                // end connecton if it's an invalid channel type
+                break;
+            };
+
+        }
+
+        connection.close(0u32.into(), b"connection error");
     }
 
     /// # [`Peer:join`]

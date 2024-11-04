@@ -12,7 +12,7 @@ use super::{error::HandshakeError, Peer};
 /// # [`handshake`]
 /// Runs a handshake over a given channel, returning either the peer's name if the handshake succeeds,
 /// or an error if not.
-pub(crate) async fn handshake<V, H>(peer: &Peer<V, H>, connection: Connection, is_server: bool) -> Result<String, HandshakeError> {
+pub(crate) async fn handshake<V, H>(peer: Arc<Peer<V, H>>, connection: Connection, is_server: bool) -> Result<String, HandshakeError> {
 
 
     // Either accept or open the handshake channel, depending on if this is the server or client
