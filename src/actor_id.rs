@@ -1,42 +1,30 @@
 //! # ActorID
-//! Contains a basic [`ActorID`] type that represents only foreign actors.
+//! Contains a basic [`ActorID`] type that represents actors without any regard to the system.
 
 use fluxion::Identifier;
 
 
 
 /// # [`ActorID`]
-/// This enum is used to identify an actor that is on a specific foreign system.
-/// This is used instead of [`Identifier`] in situations where the actor is known to be on a foreign system,
-/// so local variants are not required
+/// This enum is used to identify an actor in contexts where the system doesn't matter.
+/// This is used instead of [`Identifier`] in situations where the actor's location is already known.
+#[derive(PartialEq, Eq, Hash)]
 pub enum ActorID {
-    /// # [`ActorID::Foreign`]
-    /// Represents a foreign actor on the given system with a numeric ID.
-    Foreign {
-        /// The foreign actor's numeric id
-        id: u64,
-        /// The name of the foreign system
-        system: String,
-    },
-    /// # [`ActorID::ForeignNamed`]
-    /// Represents a foreign actor on the given system with a string ID (name)
-    ForeignNamed {
-        /// The foreign actor's name
-        name: String,
-        /// The name of the foreign system
-        system: String,
-    }
+    /// # [`ActorID::`]
+    /// Represents an actor with a numeric ID.
+    Numeric(u64),
+    /// # [`ActorID::Named`]
+    /// Represents an actor with a string ID (name)
+    Named(String)
 }
 
-impl ActorID {
-    /// # [`ActorID::from_identifier`]
-    /// Creates a new [`ActorID`] from the given [`Identifier`].
-    /// Returns [`None`] if the [`Identifier`] represents a local actor.
-    pub fn from_identifier(identifier: Identifier) -> Option<Self> {
-        match identifier {
-            Identifier::Foreign(id, system) => Some(Self::Foreign { id, system: system.to_string() }),
-            Identifier::ForeignNamed(name, system) => Some(Self::ForeignNamed { name: name.to_string(), system: system.to_string() }),
-            _ => None,
+impl From<Identifier<'_>> for ActorID {
+    fn from(value: Identifier) -> Self {
+        match value {
+            Identifier::Local(id) => Self::Numeric(id),
+            Identifier::LocalNamed(name) => Self::Named(name.to_string()),
+            Identifier::Foreign(id, _) => Self::Numeric(id),
+            Identifier::ForeignNamed(name, _) => Self::Named(name.to_string()),
         }
-    } 
+    }
 }
