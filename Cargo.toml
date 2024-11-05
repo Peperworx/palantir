@@ -10,8 +10,9 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fluxion = { version = "0.10.3", features = ["foreign", "serde"] }
-postcard = { version = "1.0.10", features = ["alloc"] }
+async-trait = "0.1.83"
+fluxion = { version = "0.10.4", features = ["foreign", "serde"] }
+pot = "3.0.1"
 serde = "1.0.214"
 slotmap = { version = "1.0.7", features = ["serde"] }
 thiserror = "1.0.66"
