@@ -21,18 +21,17 @@ pub trait Backend: Send + Sync + 'static {
     /// Opens a channel with the given message type, to the given actor, on the given system.
     /// Returns [`None`] if either the system can not be reached, the actor does not exist,
     /// or the actor does not communicate using the given message type.
-    async fn open_channel<M: Message>(&self, actor: ActorID, system: &str) -> Option<Self::Channel>;
+    fn open_channel<M: Message>(&self, actor: ActorID, system: &str, message_type: &'static str) -> impl std::future::Future<Output = Option<Self::Channel>> + Send;
 }
 
 /// # [`Channel`]
 /// [`Channel`] implementors represent a single unit of request/response communication
 /// of a specific message type, with a specific actor, on a specific system.
-pub trait Channel {
-
+pub trait Channel: Send + Sync + 'static {
 
     /// # [`Channel::request`]
     /// Sends data to the actor, and waits for a response.
     /// This method should return [`None`] if the response or request failed.
-    async fn request(&self, data: Vec<u8>) -> Option<Vec<u8>>;
+    fn request(&self, data: Vec<u8>) -> impl std::future::Future<Output = Option<Vec<u8>>> + Send;
 
 }

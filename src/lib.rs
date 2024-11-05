@@ -9,15 +9,16 @@ pub mod backend;
 mod request;
 mod actor_id;
 use actor_id::ActorID;
-use backend::Backend;
-use fluxion::{Delegate, Handler, Identifier, IndeterminateMessage, LocalRef, MessageSender};
+
+use backend::{Backend, Channel};
+use fluxion::{Actor, Delegate, Handler, Identifier, IndeterminateMessage, LocalRef, MessageSender};
 use request::Request;
 use serde::{Deserialize, Serialize};
 
 
 
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, error::Error, marker::PhantomData, sync::Arc};
 use tokio::{sync::{mpsc, RwLock}, task::JoinSet};
 
 
@@ -101,16 +102,18 @@ impl<B> Palantir<B> {
                         // As palantir doesn't yet support message schema validation (it may in the future,
                         // and this is actually what the introspectable crate was initially created for),
                         // we will simply ignore messages that don't deserialize properly.
-                        let Ok(message) = postcard::from_bytes::<M>(next_message.data()) else {
+                        let Ok(message) = pot::from_slice::<M>(next_message.data()) else {
                             return;
                         };
 
                         // Handle the message
-                        let res = actor.send(message).await;
+                        let Ok(res) = actor.send(message).await else {
+                            return;
+                        };
 
                         // Serialize it. There shouldn't be any issue serializing the response, but if it doesn't
                         // work there is not much we can do about it
-                        let Ok(response) = postcard::to_allocvec(&res) else {
+                        let Ok(response) = pot::to_vec(&res) else {
                             return;
                         };
 
@@ -143,10 +146,10 @@ impl<B: Backend> Delegate for Palantir<B> {
         }?;
 
         // Retrieve a channel to the actor
-        let channel = self.backend.open_channel::<M>(id, system).await?;
+        let channel = self.backend.open_channel::<M>(id, system, M::ID).await?;
 
-        // Wrap the 
-        todo!()
+        // Wrap the channel in a palantir sender and return
+        Some(Arc::new(PalantirSender::<B, M>::new(channel)))
     }
 }
 
@@ -154,6 +157,44 @@ impl<B: Backend> Delegate for Palantir<B> {
 /// Implements [`MessageSender`] for communication with [`Palantir`].
 /// This is not exposed to the public API directly, and is only ever
 /// exposed indirectly via a dyn [`MessageSender`].
-struct PalantirSender<M> {
-    /// The channel 
+struct PalantirSender<B: Backend, M> {
+    /// The channel that is used to send the serized messages over.
+    channel: B::Channel,
+    /// Phantom data to store the message type,
+    /// which is just used for serialization.
+    _phantom: PhantomData<M>,
+}
+
+impl<B: Backend, M: IndeterminateMessage> PalantirSender<B,M>
+    where M::Result: Serialize + for<'a> Deserialize<'a> {
+
+    /// # [`PalantirSender::new`]
+    /// Creates a new [`PalantirSender`] wrapping the given channel.
+    pub fn new(channel: B::Channel) -> Self {
+        Self {
+            channel,
+            _phantom: PhantomData
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<B: Backend, M: IndeterminateMessage> MessageSender<M> for PalantirSender<B,M>
+    where M::Result: Serialize + for<'a> Deserialize<'a> {
+    
+
+    async fn send(&self, message:M) -> Result<M::Result,Box<dyn Error> > {
+        
+        // Serialze the message
+        let message = pot::to_vec(&message)?;
+
+        // Send the message
+        let response = self.channel.request(message).await.unwrap(); // # TODO: Need to redo errors again. Most likely will get rid of boxed error types, and instead use a sized type.
+
+        // Decode the response
+        let response: M::Result = pot::from_slice(&response)?;
+
+        Ok(response)
+    }
+
 }
