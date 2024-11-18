@@ -3,7 +3,7 @@
 
 
 
-use fluxion::{IndeterminateMessage, Message};
+use fluxion::{IndeterminateMessage, Message, MessageSendError};
 use serde::{Deserialize, Serialize};
 
 use crate::actor_id::ActorID;
@@ -31,7 +31,8 @@ pub trait Channel: Send + Sync + 'static {
 
     /// # [`Channel::request`]
     /// Sends data to the actor, and waits for a response.
-    /// This method should return [`None`] if the response or request failed.
-    fn request(&self, data: Vec<u8>) -> impl std::future::Future<Output = Option<Vec<u8>>> + Send;
+    /// This method should return a [`MessageSendError`] in case of an error in transmission.
+    fn request(&self, data: Vec<u8>) -> impl std::future::Future<Output = Result<Vec<u8>, MessageSendError>> + Send;
+
 
 }

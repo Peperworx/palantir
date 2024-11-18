@@ -8,7 +8,7 @@ use fluxion::Identifier;
 /// # [`ActorID`]
 /// This enum is used to identify an actor in contexts where the system doesn't matter.
 /// This is used instead of [`Identifier`] in situations where the actor's location is already known.
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub enum ActorID {
     /// # [`ActorID::`]
     /// Represents an actor with a numeric ID.

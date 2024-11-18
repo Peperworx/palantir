@@ -11,7 +11,7 @@ readme = "README.md"
 
 [dependencies]
 async-trait = "0.1.83"
-fluxion = { version = "0.10.4", features = ["foreign", "serde"] }
+fluxion = { version = "0.10.5", features = ["foreign", "serde"] }
 pot = "3.0.1"
 serde = "1.0.214"
 slotmap = { version = "1.0.7", features = ["serde"] }

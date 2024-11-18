@@ -7,8 +7,8 @@
 pub mod backend;
 
 mod request;
-mod actor_id;
-use actor_id::ActorID;
+pub mod actor_id;
+pub use actor_id::ActorID;
 
 use backend::{Backend, Channel};
 use fluxion::{Actor, Delegate, Handler, Identifier, IndeterminateMessage, LocalRef, MessageSender};
@@ -35,6 +35,15 @@ pub struct Palantir<B> {
     actor_handlers: RwLock<HashMap<(u64, String), mpsc::Sender<Request>>>,
     /// A join set containing tasks spawned by this palantir instance
     join_set: Arc<std::sync::Mutex<JoinSet<()>>>,
+}
+
+impl<B> Drop for Palantir<B> {
+    fn drop(&mut self) {
+        match self.join_set.lock() {
+            Ok(mut js) => js.abort_all(),
+            Err(e) => e.into_inner().abort_all(),
+        }
+    }
 }
 
 
